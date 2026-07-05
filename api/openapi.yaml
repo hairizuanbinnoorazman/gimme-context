@@ -543,6 +543,64 @@ paths:
         "200": { description: Approval response recorded, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /workspaces/{workspaceId}/context-recipes:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }]
+    get:
+      operationId: listContextRecipes
+      responses: { "200": { description: Latest context recipe versions } }
+    post:
+      operationId: createContextRecipe
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateContextRecipe" } } } }
+      responses: { "201": { description: Context recipe created, content: { application/json: { schema: { $ref: "#/components/schemas/ContextRecipe" } } } } }
+  /workspaces/{workspaceId}/context-recipes/{recipeId}/versions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: recipeId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: createContextRecipeVersion
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateContextRecipe" } } } }
+      responses: { "201": { description: Immutable recipe version created } }
+  /workspaces/{workspaceId}/context-recipes/{recipeId}/simulate:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: recipeId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: simulateContextRecipe
+      description: Renders and validates a recipe without contacting telemetry sources or changing an incident.
+      responses: { "200": { description: Rendered collection simulation } }
+  /workspaces/{workspaceId}/integrations/alertmanager/webhook:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }]
+    post:
+      operationId: receiveAlertmanagerWebhook
+      description: Idempotently creates an incident by alert fingerprint or group key and runs its initial context recipe.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AlertWebhook" } } } }
+      responses:
+        "201": { description: Incident and optional initial collection created }
+        "200": { description: Alert deduplicated to an existing incident }
+  /workspaces/{workspaceId}/incidents/{incidentId}/context-collections:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
+    get:
+      operationId: listContextCollections
+      responses: { "200": { description: Immutable retrieval collections } }
+    post:
+      operationId: collectIncidentContext
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      responses: { "201": { description: Collection and expandable feed post created } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/context-collections/{collectionId}/refresh:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: collectionId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: refreshContextCollection
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      responses: { "201": { description: New collection linked to the prior immutable collection } }
+  /workspaces/{workspaceId}/incident-search:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/PrincipalId" }]
+    get:
+      operationId: searchIncidents
+      parameters: [{ name: q, in: query, schema: { type: string } }, { name: exclude, in: query, schema: { type: string } }]
+      responses: { "200": { description: Ranked incidents visible to the caller } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/similar:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { $ref: "#/components/parameters/PrincipalId" }]
+    get:
+      operationId: proposeSimilarIncidents
+      responses: { "200": { description: Visibility-filtered similar incident proposals } }
 components:
   parameters:
     WorkspaceId:
@@ -583,6 +641,58 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    ContextQuery:
+      type: object
+      required: [name, source, query]
+      properties:
+        name: { type: string }
+        source: { type: string, enum: [prometheus, loki] }
+        query: { type: string }
+        lookback: { type: string, examples: [30m] }
+        step: { type: string }
+        limit: { type: integer, minimum: 0 }
+        required: { type: boolean }
+    CreateContextRecipe:
+      type: object
+      required: [name, queries]
+      properties:
+        name: { type: string }
+        queries: { type: array, minItems: 1, items: { $ref: "#/components/schemas/ContextQuery" } }
+    ContextRecipe:
+      allOf:
+        - $ref: "#/components/schemas/CreateContextRecipe"
+        - type: object
+          required: [id, workspaceId, version, createdBy, createdAt]
+          properties:
+            id: { type: string }
+            workspaceId: { type: string }
+            version: { type: integer, minimum: 1 }
+            createdBy: { type: string }
+            createdAt: { type: string, format: date-time }
+    AlertWebhook:
+      type: object
+      required: [alerts]
+      properties:
+        ownerId: { type: string, description: Owner selected by the alert routing rule }
+        recipeId: { type: string }
+        recipeVersion: { type: integer, minimum: 1 }
+        receiver: { type: string }
+        status: { type: string }
+        groupKey: { type: string }
+        commonLabels: { type: object, additionalProperties: { type: string } }
+        alerts:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              fingerprint: { type: string }
+              status: { type: string }
+              labels: { type: object, additionalProperties: { type: string } }
+              annotations: { type: object, additionalProperties: { type: string } }
+              startsAt: { type: string, format: date-time }
+              endsAt: { type: string, format: date-time }
+              generatorURL: { type: string, format: uri }
     Health:
       type: object
       required: [status]
@@ -886,7 +996,7 @@ components:
       properties:
         type:
           type: string
-          enum: [markdown, code, log, table, checklist, fact, decision, action, poll, approval, status]
+          enum: [markdown, code, log, table, time-series, retrieval, checklist, fact, decision, action, poll, approval, status]
         schemaVersion: { type: integer, minimum: 1, default: 1 }
         payload: { type: object, additionalProperties: true }
     Block:

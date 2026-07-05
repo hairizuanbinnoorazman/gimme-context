@@ -329,6 +329,7 @@ func Register(mux *http.ServeMux, store *Store) {
 		item, err := store.RespondApproval(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("approvalID"), actor(r), input.Decision)
 		respond(w, http.StatusOK, item, err)
 	})
+	registerContextHTTP(mux, store)
 }
 
 func postHistoryHandler(store *Store) http.HandlerFunc {

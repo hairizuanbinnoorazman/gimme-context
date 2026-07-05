@@ -31,6 +31,7 @@ var validSeverity = map[string]bool{
 var validBlockType = map[string]bool{
 	"markdown": true, "code": true, "log": true, "table": true, "checklist": true,
 	"fact": true, "decision": true, "action": true, "poll": true, "approval": true, "status": true,
+	"time-series": true, "retrieval": true,
 }
 
 type Block struct {
@@ -219,24 +220,34 @@ type AuditEvent struct {
 }
 
 type Store struct {
-	mu          sync.RWMutex
-	channels    map[string]PermanentChannel
-	incidents   map[string]Incident
-	posts       map[string][]Post
-	postHistory map[string][]Post
-	facts       map[string][]Fact
-	decisions   map[string][]Decision
-	actions     map[string][]Action
-	polls       map[string][]Poll
-	approvals   map[string][]Approval
-	templates   map[string][]IncidentTemplate
-	memberships map[string][]Membership
-	audit       []AuditEvent
-	now         func() time.Time
+	mu             sync.RWMutex
+	channels       map[string]PermanentChannel
+	incidents      map[string]Incident
+	posts          map[string][]Post
+	postHistory    map[string][]Post
+	facts          map[string][]Fact
+	decisions      map[string][]Decision
+	actions        map[string][]Action
+	polls          map[string][]Poll
+	approvals      map[string][]Approval
+	templates      map[string][]IncidentTemplate
+	memberships    map[string][]Membership
+	audit          []AuditEvent
+	contextRecipes map[string][]ContextRecipe
+	collections    map[string][]ContextCollection
+	alertIncidents map[string]string
+	contextService ContextService
+	now            func() time.Time
 }
 
 func NewStore() *Store {
-	return &Store{channels: make(map[string]PermanentChannel), incidents: make(map[string]Incident), posts: make(map[string][]Post), postHistory: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), memberships: make(map[string][]Membership), now: time.Now}
+	return &Store{channels: make(map[string]PermanentChannel), incidents: make(map[string]Incident), posts: make(map[string][]Post), postHistory: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), memberships: make(map[string][]Membership), contextRecipes: make(map[string][]ContextRecipe), collections: make(map[string][]ContextCollection), alertIncidents: make(map[string]string), now: time.Now}
+}
+
+func (s *Store) SetContextService(service ContextService) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contextService = service
 }
 
 func (s *Store) CreatePermanentChannel(workspaceID, actorID, title, description string) (PermanentChannel, error) {
@@ -1203,6 +1214,11 @@ func (s *Store) revisePost(workspaceID, incidentID, postID, actorID string, bloc
 		}
 		if post.AuthorID != actorID {
 			return Post{}, ErrForbidden
+		}
+		for _, block := range post.Blocks {
+			if block.Type == "retrieval" || block.Type == "time-series" {
+				return Post{}, ErrConflict
+			}
 		}
 		blocks = prepareBlocks(blocks)
 		post.Blocks, post.Revision, post.UpdatedAt = blocks, post.Revision+1, s.now().UTC()

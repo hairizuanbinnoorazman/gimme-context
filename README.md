@@ -41,12 +41,15 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
-M1 human incident coordination is functionally complete. The API-backed Elm
+M1 human incident coordination and M2 automatic operational context are
+functionally complete. The API-backed Elm
 interface supports permanent and incident channels, template-based incident
 creation, typed posts and replies, author revisions, roles and ownership,
 structured facts/decisions/actions/polls/approvals, and gated incident closure.
-Backend and frontend tests cover the complete manual incident path without AI
-or external integrations.
+It also supports versioned context recipes, Alertmanager-created incidents,
+Prometheus/Loki collection posts, visible retrieval failures and refreshes, and
+similar-incident proposals. Backend and frontend tests cover both the manual
+incident path and the alert-to-initial-context path without AI.
 
 The current store remains in-memory for contract iteration. PostgreSQL
 durability, workspace administration, comprehensive read authorisation, and

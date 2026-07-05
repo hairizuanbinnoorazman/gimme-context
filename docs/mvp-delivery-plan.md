@@ -65,6 +65,12 @@ Implemented acceptance surface:
 
 ### M2: Automatic operational context
 
+Status: complete for the M2 functional slice. Integration transport, recipes,
+collection provenance, failures, refresh lineage, search visibility, and the
+alert-to-context acceptance path are implemented against the in-memory contract
+store. Durable job execution and encrypted integration credentials remain M0
+production-readiness dependencies.
+
 - Alertmanager incident creation and deduplication
 - Prometheus metrics snapshots
 - Loki log excerpts
@@ -74,6 +80,18 @@ Implemented acceptance surface:
 
 Exit condition: an alert creates an incident and posts initial metrics and logs
 within the target two minutes under pilot load.
+
+Implemented acceptance surface:
+
+- Fingerprint/group-key Alertmanager deduplication and routed incident ownership
+- Read-only Prometheus range snapshots and bounded Loki excerpts with source links
+- Immutable collection posts with query windows, retrieval time, freshness,
+  completeness, transformation/redaction fields, retries, and failure guidance
+- Versioned context recipes, variable validation, side-effect-free simulation,
+  manual collection, and provenance-linked refresh
+- Workspace search and similar-incident proposals filtered by active membership
+- Elm controls for collection, status/failure inspection, refresh, and proposals
+- Backend alert-to-context, retry/failure, refresh, and visibility acceptance tests
 
 ### M3: AI-assisted synthesis
 
