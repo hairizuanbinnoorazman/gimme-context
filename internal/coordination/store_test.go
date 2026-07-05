@@ -86,3 +86,59 @@ func TestRejectsUnknownBlockType(t *testing.T) {
 		t.Fatalf("error = %v, want invalid", err)
 	}
 }
+
+func TestFactsRequireValidEvidenceAndOwnerControlsState(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	post, _ := store.AddPost("workspace-a", incident.ID, "bob", "", "", []Block{{Type: "log", Payload: map[string]any{"text": "timeout"}}})
+	if _, err := store.AddFact("workspace-a", incident.ID, "bob", "timeouts increased", []string{"missing"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing evidence error = %v, want invalid", err)
+	}
+	fact, err := store.AddFact("workspace-a", incident.ID, "bob", "timeouts increased", []string{post.Blocks[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UpdateFact("workspace-a", incident.ID, fact.ID, "bob", "corroborated"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("participant fact update error = %v, want forbidden", err)
+	}
+	fact, err = store.UpdateFact("workspace-a", incident.ID, fact.ID, "alice", "corroborated")
+	if err != nil || fact.State != "corroborated" {
+		t.Fatalf("fact = %+v, err = %v", fact, err)
+	}
+}
+
+func TestAcceptedDecisionIsImmutable(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	decision, err := store.AddDecision("workspace-a", incident.ID, "bob", "roll back", "errors followed deploy", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err = store.Decide("workspace-a", incident.ID, decision.ID, "alice", "accepted")
+	if err != nil || decision.Status != "accepted" {
+		t.Fatalf("decision = %+v, err = %v", decision, err)
+	}
+	if _, err = store.Decide("workspace-a", incident.ID, decision.ID, "alice", "rejected"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second decision error = %v, want conflict", err)
+	}
+}
+
+func TestResolutionRequiresSummaryAndCompletedChecklist(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	for _, state := range []string{"investigating", "mitigating", "monitoring"} {
+		incident, _ = store.UpdateIncident("workspace-a", incident.ID, "alice", state, "", "")
+	}
+	if _, err := store.UpdateIncident("workspace-a", incident.ID, "alice", "resolved", "", ""); !errors.Is(err, ErrConflict) {
+		t.Fatalf("unready resolution error = %v, want conflict", err)
+	}
+	incident, _ = store.UpdateResolution("workspace-a", incident.ID, "alice", "Rollback restored checkout.", "", nil)
+	completed := true
+	for _, item := range incident.ClosureChecklist {
+		incident, _ = store.UpdateResolution("workspace-a", incident.ID, "alice", "", item.ID, &completed)
+	}
+	incident, err := store.UpdateIncident("workspace-a", incident.ID, "alice", "resolved", "", "")
+	if err != nil || incident.Lifecycle != "resolved" {
+		t.Fatalf("incident = %+v, err = %v", incident, err)
+	}
+}

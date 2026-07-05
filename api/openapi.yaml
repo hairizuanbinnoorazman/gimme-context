@@ -178,6 +178,131 @@ paths:
               schema: { $ref: "#/components/schemas/Post" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/resolution:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+    patch:
+      operationId: updateIncidentResolution
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateResolution" }
+      responses:
+        "200":
+          description: Verified summary or closure checklist updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/facts:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+    get:
+      operationId: listFacts
+      responses:
+        "200":
+          description: Structured incident facts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Fact" } }
+    post:
+      operationId: proposeFact
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProposeFact" }
+      responses:
+        "201":
+          description: Fact proposed as unverified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fact" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/facts/{factId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+      - { name: factId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: setFactState
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { $ref: "#/components/schemas/FactState" }
+      responses:
+        "200":
+          description: Fact state updated by the incident owner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fact" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/decisions:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+    get:
+      operationId: listDecisions
+      responses:
+        "200":
+          description: Structured incident decisions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Decision" } }
+    post:
+      operationId: proposeDecision
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProposeDecision" }
+      responses:
+        "201":
+          description: Decision proposed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Decision" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/decisions/{decisionId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+      - { name: decisionId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: decideDecision
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [accepted, rejected] }
+      responses:
+        "200":
+          description: Proposed decision accepted or rejected by the incident owner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Decision" }
+        "409": { $ref: "#/components/responses/Conflict" }
 components:
   parameters:
     WorkspaceId:
@@ -256,7 +381,7 @@ components:
         ownerId: { type: string }
     Incident:
       type: object
-      required: [id, workspaceId, title, ownerId, severity, lifecycle, scope, createdAt, updatedAt]
+      required: [id, workspaceId, title, ownerId, severity, lifecycle, scope, closureChecklist, createdAt, updatedAt]
       properties:
         id: { type: string }
         workspaceId: { type: string }
@@ -268,6 +393,10 @@ components:
         scope:
           type: array
           items: { type: string }
+        verifiedSummary: { type: string }
+        closureChecklist:
+          type: array
+          items: { $ref: "#/components/schemas/ChecklistItem" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     Severity:
@@ -276,6 +405,65 @@ components:
     Lifecycle:
       type: string
       enum: [open, investigating, mitigating, monitoring, resolved, reviewed, archived, dormant, cancelled]
+    ChecklistItem:
+      type: object
+      required: [id, label, completed]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        completed: { type: boolean }
+    UpdateResolution:
+      type: object
+      description: Set a verified summary, update one checklist item, or both.
+      properties:
+        verifiedSummary: { type: string }
+        checklistItemId: { type: string }
+        completed: { type: boolean }
+    FactState:
+      type: string
+      enum: [unverified, corroborated, disputed, superseded, invalidated]
+    ProposeFact:
+      type: object
+      required: [statement]
+      properties:
+        statement: { type: string, minLength: 1 }
+        evidenceBlockIds: { type: array, items: { type: string } }
+    Fact:
+      type: object
+      required: [id, workspaceId, incidentId, statement, state, evidenceBlockIds, proposedBy, updatedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        statement: { type: string }
+        state: { $ref: "#/components/schemas/FactState" }
+        evidenceBlockIds: { type: array, items: { type: string } }
+        proposedBy: { type: string }
+        updatedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProposeDecision:
+      type: object
+      required: [statement]
+      properties:
+        statement: { type: string, minLength: 1 }
+        rationale: { type: string }
+        evidenceBlockIds: { type: array, items: { type: string } }
+    Decision:
+      type: object
+      required: [id, workspaceId, incidentId, statement, rationale, status, evidenceBlockIds, proposedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        statement: { type: string }
+        rationale: { type: string }
+        status: { type: string, enum: [proposed, accepted, rejected] }
+        evidenceBlockIds: { type: array, items: { type: string } }
+        proposedBy: { type: string }
+        decidedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     CreatePost:
       type: object
       required: [blocks]

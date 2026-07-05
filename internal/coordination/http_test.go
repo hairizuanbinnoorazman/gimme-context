@@ -38,3 +38,36 @@ func TestIncidentHTTPFlow(t *testing.T) {
 		t.Fatalf("cross-workspace status = %d", recorder.Code)
 	}
 }
+
+func TestDecisionHTTPFlow(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents", bytes.NewBufferString(`{"title":"Latency","severity":"SEV-2"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	var incident Incident
+	if err := json.NewDecoder(recorder.Body).Decode(&incident); err != nil {
+		t.Fatal(err)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/decisions", bytes.NewBufferString(`{"statement":"roll back","rationale":"latency followed deployment"}`))
+	request.Header.Set("X-Principal-ID", "bob")
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("propose status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var decision Decision
+	if err := json.NewDecoder(recorder.Body).Decode(&decision); err != nil {
+		t.Fatal(err)
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/decisions/"+decision.ID, bytes.NewBufferString(`{"status":"accepted"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("accept status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
