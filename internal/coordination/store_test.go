@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestPermanentChannelDiscussionAndRevisionHistory(t *testing.T) {
+	store := NewStore()
+	channel, err := store.CreatePermanentChannel("workspace-a", "alice", "Platform", "Operational discussion")
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err := store.AddPermanentPost("workspace-a", channel.ID, "alice", "", "", []Block{{Type: "markdown", Payload: map[string]any{"text": "Deploy notes"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddPermanentPost("workspace-a", channel.ID, "bob", post.ID, post.Blocks[0].ID, []Block{{Type: "decision", Payload: map[string]any{"text": "Use canaries"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.RevisePermanentPost("workspace-a", channel.ID, post.ID, "bob", post.Blocks); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("other-author revision error = %v, want forbidden", err)
+	}
+	revised, err := store.RevisePermanentPost("workspace-a", channel.ID, post.ID, "alice", []Block{{Type: "markdown", Payload: map[string]any{"text": "Revised deploy notes"}}})
+	if err != nil || revised.Revision != 2 {
+		t.Fatalf("revised = %+v, err = %v", revised, err)
+	}
+	history, err := store.PostHistory("workspace-a", channel.ID, post.ID)
+	if err != nil || len(history) != 2 || history[0].Revision != 1 || history[1].Revision != 2 {
+		t.Fatalf("history = %+v, err = %v", history, err)
+	}
+	if got := store.PermanentChannels("workspace-b"); len(got) != 0 {
+		t.Fatalf("cross-workspace list leaked %d channels", len(got))
+	}
+}
+
 func TestManualIncidentLifecycle(t *testing.T) {
 	store := NewStore()
 	incident, err := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", []string{"checkout"})

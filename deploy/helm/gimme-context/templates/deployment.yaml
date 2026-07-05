@@ -76,6 +76,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: API_UPSTREAM
+              value: http://{{ .Release.Name }}-api:{{ .Values.service.apiPort }}
           livenessProbe:
             httpGet:
               path: /health/live

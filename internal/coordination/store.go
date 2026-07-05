@@ -53,6 +53,16 @@ type Post struct {
 	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
+type PermanentChannel struct {
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspaceId"`
+	Title       string    `json:"title"`
+	Description string    `json:"description,omitempty"`
+	CreatedBy   string    `json:"createdBy"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 type Incident struct {
 	ID               string            `json:"id"`
 	WorkspaceID      string            `json:"workspaceId"`
@@ -210,8 +220,10 @@ type AuditEvent struct {
 
 type Store struct {
 	mu          sync.RWMutex
+	channels    map[string]PermanentChannel
 	incidents   map[string]Incident
 	posts       map[string][]Post
+	postHistory map[string][]Post
 	facts       map[string][]Fact
 	decisions   map[string][]Decision
 	actions     map[string][]Action
@@ -224,7 +236,119 @@ type Store struct {
 }
 
 func NewStore() *Store {
-	return &Store{incidents: make(map[string]Incident), posts: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), memberships: make(map[string][]Membership), now: time.Now}
+	return &Store{channels: make(map[string]PermanentChannel), incidents: make(map[string]Incident), posts: make(map[string][]Post), postHistory: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), memberships: make(map[string][]Membership), now: time.Now}
+}
+
+func (s *Store) CreatePermanentChannel(workspaceID, actorID, title, description string) (PermanentChannel, error) {
+	title = strings.TrimSpace(title)
+	if workspaceID == "" || actorID == "" || title == "" {
+		return PermanentChannel{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	channel := PermanentChannel{ID: newID(), WorkspaceID: workspaceID, Title: title, Description: strings.TrimSpace(description), CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.channels[channel.ID] = channel
+	s.record(workspaceID, actorID, "permanent_channel.created", channel.ID, now)
+	return channel, nil
+}
+
+func (s *Store) PermanentChannels(workspaceID string) []PermanentChannel {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]PermanentChannel, 0)
+	for _, channel := range s.channels {
+		if channel.WorkspaceID == workspaceID {
+			items = append(items, channel)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Title < items[j].Title })
+	return items
+}
+
+func (s *Store) PermanentChannel(workspaceID, channelID string) (PermanentChannel, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	channel, ok := s.channels[channelID]
+	if !ok || channel.WorkspaceID != workspaceID {
+		return PermanentChannel{}, ErrNotFound
+	}
+	return channel, nil
+}
+
+func (s *Store) AddPermanentPost(workspaceID, channelID, actorID, replyPostID, replyBlockID string, blocks []Block) (Post, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	channel, ok := s.channels[channelID]
+	if !ok || channel.WorkspaceID != workspaceID {
+		return Post{}, ErrNotFound
+	}
+	if actorID == "" || !validateBlocks(blocks) {
+		return Post{}, ErrInvalid
+	}
+	if replyPostID != "" && !s.replyTargetExists(channelID, replyPostID, replyBlockID) {
+		return Post{}, ErrInvalid
+	}
+	blocks = prepareBlocks(blocks)
+	now := s.now().UTC()
+	post := Post{ID: newID(), WorkspaceID: workspaceID, IncidentID: channelID, AuthorID: actorID, ReplyToPostID: replyPostID, ReplyToBlockID: replyBlockID, Revision: 1, Blocks: blocks, CreatedAt: now, UpdatedAt: now}
+	s.posts[channelID] = append(s.posts[channelID], post)
+	s.postHistory[post.ID] = []Post{clonePost(post)}
+	s.record(workspaceID, actorID, "permanent_channel.post_created", post.ID, now)
+	return clonePost(post), nil
+}
+
+func (s *Store) PermanentFeed(workspaceID, channelID string) ([]Post, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	channel, ok := s.channels[channelID]
+	if !ok || channel.WorkspaceID != workspaceID {
+		return nil, ErrNotFound
+	}
+	return clonePosts(s.posts[channelID]), nil
+}
+
+func (s *Store) RevisePermanentPost(workspaceID, channelID, postID, actorID string, blocks []Block) (Post, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	channel, ok := s.channels[channelID]
+	if !ok || channel.WorkspaceID != workspaceID {
+		return Post{}, ErrNotFound
+	}
+	if !validateBlocks(blocks) {
+		return Post{}, ErrInvalid
+	}
+	for i := range s.posts[channelID] {
+		post := &s.posts[channelID][i]
+		if post.ID != postID {
+			continue
+		}
+		if actorID == "" || post.AuthorID != actorID {
+			return Post{}, ErrForbidden
+		}
+		post.Blocks, post.Revision, post.UpdatedAt = prepareBlocks(blocks), post.Revision+1, s.now().UTC()
+		s.postHistory[post.ID] = append(s.postHistory[post.ID], clonePost(*post))
+		s.record(workspaceID, actorID, "permanent_channel.post_revised", postID, post.UpdatedAt)
+		return clonePost(*post), nil
+	}
+	return Post{}, ErrNotFound
+}
+
+func (s *Store) PostHistory(workspaceID, channelID, postID string) ([]Post, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if incident, ok := s.incidents[channelID]; ok {
+		if incident.WorkspaceID != workspaceID {
+			return nil, ErrNotFound
+		}
+	} else if channel, ok := s.channels[channelID]; !ok || channel.WorkspaceID != workspaceID {
+		return nil, ErrNotFound
+	}
+	history, ok := s.postHistory[postID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return clonePosts(history), nil
 }
 
 func (s *Store) CreateTemplateVersion(workspaceID, actorID, templateID, name, description, severity string, scope []string, checklist []ChecklistItem) (IncidentTemplate, error) {
@@ -1041,16 +1165,12 @@ func (s *Store) AddPost(workspaceID, incidentID, actorID, replyPostID, replyBloc
 		return Post{}, ErrInvalid
 	}
 	now := s.now().UTC()
-	for i := range blocks {
-		blocks[i].ID = newID()
-		if blocks[i].SchemaVersion == 0 {
-			blocks[i].SchemaVersion = 1
-		}
-	}
+	blocks = prepareBlocks(blocks)
 	post := Post{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, AuthorID: actorID, ReplyToPostID: replyPostID, ReplyToBlockID: replyBlockID, Revision: 1, Blocks: blocks, CreatedAt: now, UpdatedAt: now}
 	s.posts[incidentID] = append(s.posts[incidentID], post)
+	s.postHistory[post.ID] = []Post{clonePost(post)}
 	s.record(workspaceID, actorID, "post.created", post.ID, now)
-	return post, nil
+	return clonePost(post), nil
 }
 
 func (s *Store) Feed(workspaceID, incidentID string) ([]Post, error) {
@@ -1060,7 +1180,7 @@ func (s *Store) Feed(workspaceID, incidentID string) ([]Post, error) {
 	if !ok || incident.WorkspaceID != workspaceID {
 		return nil, ErrNotFound
 	}
-	return append([]Post(nil), s.posts[incidentID]...), nil
+	return clonePosts(s.posts[incidentID]), nil
 }
 
 func (s *Store) revisePost(workspaceID, incidentID, postID, actorID string, blocks []Block) (Post, error) {
@@ -1084,15 +1204,11 @@ func (s *Store) revisePost(workspaceID, incidentID, postID, actorID string, bloc
 		if post.AuthorID != actorID {
 			return Post{}, ErrForbidden
 		}
-		for j := range blocks {
-			blocks[j].ID = newID()
-			if blocks[j].SchemaVersion == 0 {
-				blocks[j].SchemaVersion = 1
-			}
-		}
+		blocks = prepareBlocks(blocks)
 		post.Blocks, post.Revision, post.UpdatedAt = blocks, post.Revision+1, s.now().UTC()
+		s.postHistory[post.ID] = append(s.postHistory[post.ID], clonePost(*post))
 		s.record(workspaceID, actorID, "post.revised", postID, post.UpdatedAt)
-		return *post, nil
+		return clonePost(*post), nil
 	}
 	return Post{}, ErrNotFound
 }
@@ -1107,6 +1223,42 @@ func validateBlocks(blocks []Block) bool {
 		}
 	}
 	return true
+}
+
+func prepareBlocks(blocks []Block) []Block {
+	prepared := make([]Block, len(blocks))
+	for i, block := range blocks {
+		prepared[i] = block
+		prepared[i].ID = newID()
+		if prepared[i].SchemaVersion == 0 {
+			prepared[i].SchemaVersion = 1
+		}
+		prepared[i].Payload = clonePayload(block.Payload)
+	}
+	return prepared
+}
+
+func clonePayload(payload map[string]any) map[string]any {
+	encoded, _ := json.Marshal(payload)
+	var result map[string]any
+	_ = json.Unmarshal(encoded, &result)
+	return result
+}
+
+func clonePost(post Post) Post {
+	post.Blocks = append([]Block(nil), post.Blocks...)
+	for i := range post.Blocks {
+		post.Blocks[i].Payload = clonePayload(post.Blocks[i].Payload)
+	}
+	return post
+}
+
+func clonePosts(posts []Post) []Post {
+	result := make([]Post, len(posts))
+	for i, post := range posts {
+		result[i] = clonePost(post)
+	}
+	return result
 }
 
 func (s *Store) replyTargetExists(incidentID, postID, blockID string) bool {

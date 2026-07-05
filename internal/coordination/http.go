@@ -8,6 +8,51 @@ import (
 )
 
 func Register(mux *http.ServeMux, store *Store) {
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/permanent-channels", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"items": store.PermanentChannels(r.PathValue("workspaceID"))})
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/permanent-channels", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.CreatePermanentChannel(r.PathValue("workspaceID"), actor(r), input.Title, input.Description)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/permanent-channels/{channelID}", func(w http.ResponseWriter, r *http.Request) {
+		item, err := store.PermanentChannel(r.PathValue("workspaceID"), r.PathValue("channelID"))
+		respond(w, http.StatusOK, item, err)
+	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/permanent-channels/{channelID}/posts", func(w http.ResponseWriter, r *http.Request) {
+		items, err := store.PermanentFeed(r.PathValue("workspaceID"), r.PathValue("channelID"))
+		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/permanent-channels/{channelID}/posts", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			ReplyToPostID  string  `json:"replyToPostId"`
+			ReplyToBlockID string  `json:"replyToBlockId"`
+			Blocks         []Block `json:"blocks"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.AddPermanentPost(r.PathValue("workspaceID"), r.PathValue("channelID"), actor(r), input.ReplyToPostID, input.ReplyToBlockID, input.Blocks)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("PUT /api/v1/workspaces/{workspaceID}/permanent-channels/{channelID}/posts/{postID}", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Blocks []Block `json:"blocks"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.RevisePermanentPost(r.PathValue("workspaceID"), r.PathValue("channelID"), r.PathValue("postID"), actor(r), input.Blocks)
+		respond(w, http.StatusOK, item, err)
+	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/permanent-channels/{channelID}/posts/{postID}/revisions", postHistoryHandler(store))
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incident-templates", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"items": store.Templates(r.PathValue("workspaceID"))})
 	})
@@ -136,9 +181,23 @@ func Register(mux *http.ServeMux, store *Store) {
 		post, err := store.revisePost(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("postID"), actor(r), input.Blocks)
 		respond(w, http.StatusOK, post, err)
 	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/posts/{postID}/revisions", postHistoryHandler(store))
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/facts", func(w http.ResponseWriter, r *http.Request) {
 		items, err := store.Facts(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/coordination", func(w http.ResponseWriter, r *http.Request) {
+		workspaceID, incidentID := r.PathValue("workspaceID"), r.PathValue("incidentID")
+		facts, err := store.Facts(workspaceID, incidentID)
+		if err != nil {
+			respond(w, http.StatusOK, nil, err)
+			return
+		}
+		decisions, _ := store.Decisions(workspaceID, incidentID)
+		actions, _ := store.Actions(workspaceID, incidentID)
+		polls, _ := store.Polls(workspaceID, incidentID)
+		approvals, _ := store.Approvals(workspaceID, incidentID)
+		writeJSON(w, http.StatusOK, map[string]any{"facts": facts, "decisions": decisions, "actions": actions, "polls": polls, "approvals": approvals})
 	})
 	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/facts", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
@@ -270,6 +329,17 @@ func Register(mux *http.ServeMux, store *Store) {
 		item, err := store.RespondApproval(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("approvalID"), actor(r), input.Decision)
 		respond(w, http.StatusOK, item, err)
 	})
+}
+
+func postHistoryHandler(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		channelID := r.PathValue("incidentID")
+		if channelID == "" {
+			channelID = r.PathValue("channelID")
+		}
+		items, err := store.PostHistory(r.PathValue("workspaceID"), channelID, r.PathValue("postID"))
+		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	}
 }
 
 func templateVersionHandler(store *Store, existing bool) http.HandlerFunc {

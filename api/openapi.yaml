@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Gimme Context API
-  version: 0.1.0
+  version: 0.2.0
   description: Versioned HTTP contract for the Gimme Context platform.
 servers:
   - url: /api/v1
@@ -46,6 +46,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /workspaces/{workspaceId}/permanent-channels:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }]
+    get:
+      operationId: listPermanentChannels
+      responses:
+        "200": { description: Workspace permanent channels, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/PermanentChannel" } } } } } } }
+    post:
+      operationId: createPermanentChannel
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreatePermanentChannel" } } } }
+      responses:
+        "201": { description: Permanent channel created, content: { application/json: { schema: { $ref: "#/components/schemas/PermanentChannel" } } } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getPermanentChannel
+      responses:
+        "200": { description: Permanent channel, content: { application/json: { schema: { $ref: "#/components/schemas/PermanentChannel" } } } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}/posts:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: listPermanentChannelPosts
+      responses:
+        "200": { description: Chronological channel feed, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Post" } } } } } } }
+    post:
+      operationId: createPermanentChannelPost
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreatePost" } } } }
+      responses:
+        "201": { description: Typed post created, content: { application/json: { schema: { $ref: "#/components/schemas/Post" } } } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}/posts/{postId}:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }, { name: postId, in: path, required: true, schema: { type: string } }]
+    put:
+      operationId: revisePermanentChannelPost
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [blocks], properties: { blocks: { type: array, minItems: 1, items: { $ref: "#/components/schemas/BlockInput" } } } } } } }
+      responses:
+        "200": { description: New current revision, content: { application/json: { schema: { $ref: "#/components/schemas/Post" } } } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}/posts/{postId}/revisions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }, { name: postId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: listPermanentPostRevisions
+      responses:
+        "200": { description: Append-only post revision history, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Post" } } } } } } }
   /workspaces/{workspaceId}/incident-templates:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
@@ -272,7 +316,13 @@ paths:
           description: New current revision
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Post" }
+                schema: { $ref: "#/components/schemas/Post" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/posts/{postId}/revisions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: postId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: listIncidentPostRevisions
+      responses:
+        "200": { description: Append-only post revision history, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Post" } } } } } } }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
   /workspaces/{workspaceId}/incidents/{incidentId}/resolution:
@@ -323,7 +373,25 @@ paths:
           description: Fact proposed as unverified
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Fact" }
+                schema: { $ref: "#/components/schemas/Fact" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/coordination:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
+    get:
+      operationId: getIncidentCoordination
+      responses:
+        "200":
+          description: Structured manual coordination state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [facts, decisions, actions, polls, approvals]
+                properties:
+                  facts: { type: array, items: { $ref: "#/components/schemas/Fact" } }
+                  decisions: { type: array, items: { $ref: "#/components/schemas/Decision" } }
+                  actions: { type: array, items: { $ref: "#/components/schemas/Action" } }
+                  polls: { type: array, items: { $ref: "#/components/schemas/Poll" } }
+                  approvals: { type: array, items: { $ref: "#/components/schemas/Approval" } }
         "403": { $ref: "#/components/responses/Forbidden" }
   /workspaces/{workspaceId}/incidents/{incidentId}/facts/{factId}:
     parameters:
@@ -535,6 +603,23 @@ components:
       properties:
         code: { type: string }
         message: { type: string }
+    CreatePermanentChannel:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+    PermanentChannel:
+      type: object
+      required: [id, workspaceId, title, createdBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     CreateIncident:
       type: object
       required: [title]

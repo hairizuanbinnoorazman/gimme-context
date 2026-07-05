@@ -41,19 +41,17 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
-Phase 7 enforces incident roles across mutations: viewers are read-only,
-participants can discuss and propose, editors manage structured coordination,
-and owners retain lifecycle and access control. Revocation takes effect
-immediately. Phase 6 added owner-managed incident memberships and explicit
-ownership handover; Phase 5 added versioned incident templates,
-template defaults, and immutable per-incident template snapshots. Owned action
-state machines, eligible-voter polls, and quorum approvals bound to immutable action hashes,
-Evidence-linked facts, owner-accepted immutable decisions, verified summaries,
-closure gates, workspace-scoped incidents, typed posts, replies, and revisions
-remain available.
-The current store is in-memory for contract iteration; PostgreSQL durability,
-read authorization, workspace administration, and verified OIDC claims remain
-production-readiness work.
+M1 human incident coordination is functionally complete. The API-backed Elm
+interface supports permanent and incident channels, template-based incident
+creation, typed posts and replies, author revisions, roles and ownership,
+structured facts/decisions/actions/polls/approvals, and gated incident closure.
+Backend and frontend tests cover the complete manual incident path without AI
+or external integrations.
+
+The current store remains in-memory for contract iteration. PostgreSQL
+durability, workspace administration, comprehensive read authorisation, and
+verified OIDC claims are M0 production-readiness work; the development UI uses
+the explicitly temporary `X-Principal-ID` boundary.
 
 ## License
 

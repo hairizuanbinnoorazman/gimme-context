@@ -7,6 +7,7 @@ build:
 
 test:
 	go test ./...
+	cd web && npm ci && npm test
 
 fmt:
 	gofmt -w cmd internal

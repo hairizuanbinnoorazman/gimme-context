@@ -33,6 +33,12 @@ operations without cross-tenant access.
 
 ### M1: Human incident coordination
 
+Status: complete for the M1 functional slice. The acceptance coverage exercises
+manual incident creation, discussion, structured coordination, resolution, and
+closure without AI or external integrations. Durable PostgreSQL storage and
+verified OIDC identity remain M0 production-readiness dependencies and are not
+silently treated as M1 implementation.
+
 - Permanent and incident channels
 - Versioned incident templates
 - Membership, incident owner, and ownership transfer
@@ -43,6 +49,19 @@ operations without cross-tenant access.
 
 Exit condition: a team can run and close a manual incident without AI or
 external integrations.
+
+Implemented acceptance surface:
+
+- Peer permanent and incident channel APIs and navigation
+- Immutable incident-template snapshots and selectable template versions
+- Incident roles, membership, explicit ownership transfer, and immediate revocation
+- Typed posts, block/post replies, author revisions, append-only revision history,
+  and chronological feeds
+- Severity, scope, lifecycle gates, verified summary, and closure checklist
+- Evidence-aware facts and decisions, owned actions, polls, and hash-bound approvals
+- API-backed responsive Elm interface with trusted controls and Material assets
+- Backend lifecycle/invariant tests, an HTTP manual-closure acceptance test, Elm
+  lifecycle tests, and responsive/accessibility interface contract tests
 
 ### M2: Automatic operational context
 

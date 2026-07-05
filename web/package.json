@@ -3,8 +3,12 @@
   "private": true,
   "scripts": {
     "build": "npm run clean && elm make src/Main.elm --optimize --output=dist/app.js && npm run assets",
+    "test": "elm-test && node --test tests/ui-contract.test.mjs",
     "clean": "rm -rf dist && mkdir -p dist/vendor",
     "assets": "cp public/index.html public/app.css dist/ && cp node_modules/material-components-web-elm/dist/material-components-web-elm.min.css node_modules/material-components-web-elm/dist/material-components-web-elm.min.js dist/vendor/"
+  },
+  "devDependencies": {
+    "elm-test": "0.19.1-revision17"
   },
   "dependencies": {
     "material-components-web-elm": "9.1.0"

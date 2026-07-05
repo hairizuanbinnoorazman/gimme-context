@@ -39,6 +39,68 @@ func TestIncidentHTTPFlow(t *testing.T) {
 	}
 }
 
+func TestManualIncidentCanRunAndCloseOverHTTP(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+	do := func(method, path, body string, want int) []byte {
+		t.Helper()
+		request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		request.Header.Set("X-Principal-ID", "alice")
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, request)
+		if recorder.Code != want {
+			t.Fatalf("%s %s status = %d, body = %s", method, path, recorder.Code, recorder.Body.String())
+		}
+		return recorder.Body.Bytes()
+	}
+
+	created := do(http.MethodPost, "/api/v1/workspaces/acme/incidents", `{"title":"Checkout errors","severity":"SEV-2","scope":["checkout"]}`, http.StatusCreated)
+	var incident Incident
+	if err := json.Unmarshal(created, &incident); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/v1/workspaces/acme/incidents/" + incident.ID
+	do(http.MethodPost, base+"/posts", `{"blocks":[{"type":"status","schemaVersion":1,"payload":{"text":"Incident coordination started"}}]}`, http.StatusCreated)
+	do(http.MethodPost, base+"/facts", `{"statement":"Checkout failures are elevated","evidenceBlockIds":[]}`, http.StatusCreated)
+	do(http.MethodPost, base+"/decisions", `{"statement":"Roll back checkout","rationale":"Failures followed deployment","evidenceBlockIds":[]}`, http.StatusCreated)
+	do(http.MethodPost, base+"/actions", `{"title":"Perform rollback","ownerId":"alice","kind":"manual.rollback","parameters":{},"verificationCriteria":"Error rate recovers"}`, http.StatusCreated)
+	do(http.MethodPost, base+"/polls", `{"question":"Proceed with rollback?","mode":"advisory","options":["Yes","No"],"eligibleVoterIds":["alice"],"quorum":1,"allowVoteChanges":true}`, http.StatusCreated)
+	for _, state := range []string{"investigating", "mitigating", "monitoring"} {
+		do(http.MethodPatch, base, `{"lifecycle":"`+state+`"}`, http.StatusOK)
+	}
+	do(http.MethodPatch, base+"/resolution", `{"verifiedSummary":"Rollback restored checkout."}`, http.StatusOK)
+	for _, item := range incident.ClosureChecklist {
+		do(http.MethodPatch, base+"/resolution", `{"checklistItemId":"`+item.ID+`","completed":true}`, http.StatusOK)
+	}
+	resolved := do(http.MethodPatch, base, `{"lifecycle":"resolved"}`, http.StatusOK)
+	if err := json.Unmarshal(resolved, &incident); err != nil || incident.Lifecycle != "resolved" {
+		t.Fatalf("resolved incident = %+v, err = %v", incident, err)
+	}
+}
+
+func TestPermanentChannelHTTPFlow(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/permanent-channels", bytes.NewBufferString(`{"title":"Platform"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var channel PermanentChannel
+	if err := json.NewDecoder(recorder.Body).Decode(&channel); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/permanent-channels/"+channel.ID+"/posts", bytes.NewBufferString(`{"blocks":[{"type":"markdown","payload":{"text":"Runbook discussion"}}]}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("post status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestDecisionHTTPFlow(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewStore())

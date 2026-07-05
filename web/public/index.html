@@ -11,6 +11,23 @@
     <div id="app"></div>
     <script src="/vendor/material-components-web-elm.min.js"></script>
     <script src="/app.js"></script>
-    <script>Elm.Main.init({ node: document.getElementById("app") });</script>
+    <script>
+      const app = Elm.Main.init({ node: document.getElementById("app") });
+      app.ports.apiRequest.subscribe(async request => {
+        const options = { method: request.method, headers: { "Accept": "application/json" } };
+        if (request.actor) options.headers["X-Principal-ID"] = request.actor;
+        if (request.body !== undefined) {
+          options.headers["Content-Type"] = "application/json";
+          options.body = JSON.stringify(request.body);
+        }
+        try {
+          const response = await fetch(request.url, options);
+          const body = await response.json();
+          app.ports.apiResponse.send({ tag: request.tag, ok: response.ok, status: response.status, body });
+        } catch (error) {
+          app.ports.apiResponse.send({ tag: request.tag, ok: false, status: 0, body: { message: "API unavailable: " + error.message } });
+        }
+      });
+    </script>
   </body>
 </html>
