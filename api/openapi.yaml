@@ -46,7 +46,177 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /workspaces/{workspaceId}/incidents:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listIncidents
+      responses:
+        "200":
+          description: Workspace incidents, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Incident" }
+    post:
+      operationId: createIncident
+      parameters:
+        - $ref: "#/components/parameters/PrincipalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateIncident" }
+      responses:
+        "201":
+          description: Incident created with the caller as owner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /workspaces/{workspaceId}/incidents/{incidentId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+    get:
+      operationId: getIncident
+      responses:
+        "200":
+          description: Incident detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateIncident
+      parameters:
+        - $ref: "#/components/parameters/PrincipalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateIncident" }
+      responses:
+        "200":
+          description: Incident updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/posts:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+    get:
+      operationId: getIncidentFeed
+      responses:
+        "200":
+          description: Canonical chronological incident feed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Post" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: createPost
+      parameters:
+        - $ref: "#/components/parameters/PrincipalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePost" }
+      responses:
+        "201":
+          description: Post appended to the feed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Post" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/posts/{postId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+      - name: postId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: revisePost
+      parameters:
+        - $ref: "#/components/parameters/PrincipalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocks]
+              properties:
+                blocks:
+                  type: array
+                  minItems: 1
+                  items: { $ref: "#/components/schemas/BlockInput" }
+      responses:
+        "200":
+          description: New current revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Post" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 components:
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema: { type: string }
+    IncidentId:
+      name: incidentId
+      in: path
+      required: true
+      schema: { type: string }
+    PrincipalId:
+      name: X-Principal-ID
+      in: header
+      required: true
+      description: Temporary development identity boundary; replaced by verified OIDC claims.
+      schema: { type: string }
+  responses:
+    BadRequest:
+      description: Malformed or invalid command
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Caller cannot perform the command
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource is absent or outside the workspace
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Command conflicts with current state
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
   schemas:
     Health:
       type: object
@@ -62,3 +232,89 @@ components:
           type: string
         version:
           type: string
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+    CreateIncident:
+      type: object
+      required: [title, severity]
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+        severity: { $ref: "#/components/schemas/Severity" }
+        scope:
+          type: array
+          items: { type: string }
+    UpdateIncident:
+      type: object
+      properties:
+        lifecycle: { $ref: "#/components/schemas/Lifecycle" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        ownerId: { type: string }
+    Incident:
+      type: object
+      required: [id, workspaceId, title, ownerId, severity, lifecycle, scope, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        ownerId: { type: string }
+        severity: { $ref: "#/components/schemas/Severity" }
+        lifecycle: { $ref: "#/components/schemas/Lifecycle" }
+        scope:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Severity:
+      type: string
+      enum: [unclassified, SEV-1, SEV-2, SEV-3, SEV-4]
+    Lifecycle:
+      type: string
+      enum: [open, investigating, mitigating, monitoring, resolved, reviewed, archived, dormant, cancelled]
+    CreatePost:
+      type: object
+      required: [blocks]
+      properties:
+        replyToPostId: { type: string }
+        replyToBlockId: { type: string }
+        blocks:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/BlockInput" }
+    BlockInput:
+      type: object
+      required: [type, payload]
+      properties:
+        type:
+          type: string
+          enum: [markdown, code, log, table, checklist, fact, decision, action, poll, approval, status]
+        schemaVersion: { type: integer, minimum: 1, default: 1 }
+        payload: { type: object, additionalProperties: true }
+    Block:
+      allOf:
+        - $ref: "#/components/schemas/BlockInput"
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+    Post:
+      type: object
+      required: [id, workspaceId, incidentId, authorId, revision, blocks, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        authorId: { type: string }
+        replyToPostId: { type: string }
+        replyToBlockId: { type: string }
+        revision: { type: integer, minimum: 1 }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/Block" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }

@@ -1,0 +1,40 @@
+package coordination
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestIncidentHTTPFlow(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+	body := []byte(`{"title":"Database latency","severity":"SEV-2","scope":["payments"]}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents", bytes.NewReader(body))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var incident Incident
+	if err := json.NewDecoder(recorder.Body).Decode(&incident); err != nil {
+		t.Fatal(err)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/acme/incidents/"+incident.ID, nil)
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("get status = %d", recorder.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/other/incidents/"+incident.ID, nil)
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-workspace status = %d", recorder.Code)
+	}
+}

@@ -3,12 +3,18 @@ package platform
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/hairizuan-tw/gimme-context/internal/coordination"
 )
 
 const serviceName = "gimme-context-api"
 
 // Handler returns the API's transport-independent HTTP contract.
 func Handler(ready func() bool) http.Handler {
+	return HandlerWithStore(ready, coordination.NewStore())
+}
+
+func HandlerWithStore(ready func() bool, store *coordination.Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", health(http.StatusOK, "live"))
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
@@ -21,6 +27,7 @@ func Handler(ready func() bool) http.Handler {
 	mux.HandleFunc("GET /api/v1", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"service": serviceName, "version": "v1"})
 	})
+	coordination.Register(mux, store)
 	return mux
 }
 

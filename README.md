@@ -41,7 +41,11 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
-The project is implementing the M0 contracts and foundations milestone.
+Phase 2 starts the M1 manual incident path: workspace-scoped incidents,
+ownership and lifecycle transitions, typed chronological posts, block replies,
+post revisions, and a responsive incident workspace. The current store is
+in-memory for contract iteration; PostgreSQL durability and verified OIDC
+claims remain M0 production-readiness work.
 
 ## License
 

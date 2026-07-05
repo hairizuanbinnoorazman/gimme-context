@@ -1,49 +1,43 @@
-:root {
-  color-scheme: light;
-  font-family: Roboto, system-ui, sans-serif;
-  background: #f5f7fa;
-  color: #17202a;
-}
-
-body {
-  margin: 0;
-}
-
-.top-bar {
-  display: flex;
-  align-items: center;
-  min-height: 64px;
-  padding: 0 24px;
-  color: white;
-  background: #174ea6;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 18%);
-}
-
-.top-bar h1 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-.main-content {
-  max-width: 960px;
-  margin: 48px auto;
-  padding: 0 24px;
-}
-
-.surface {
-  padding: 32px;
-  border-radius: 12px;
-  background: white;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 16%);
-}
-
-@media (max-width: 600px) {
-  .main-content {
-    margin: 20px auto;
-    padding: 0 12px;
-  }
-
-  .surface {
-    padding: 20px;
-  }
-}
+:root { font-family: Inter, Roboto, system-ui, sans-serif; color: #182230; background: #f6f7f9; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, textarea { font: inherit; }
+.top-bar { height: 60px; padding: 0 24px; display: flex; align-items: center; gap: 28px; background: #153d6f; color: white; }
+.top-bar h1 { margin: 0; font-size: 1.15rem; }
+.workspace-name { color: #d7e4f5; font-size: .9rem; }
+.workspace { min-height: calc(100vh - 60px); display: grid; grid-template-columns: 230px 1fr; }
+.channel-nav { padding: 22px 14px; border-right: 1px solid #dce1e8; background: white; }
+.channel-nav ul { margin: 0 0 26px; padding: 0; list-style: none; }
+.channel-nav li { padding: 9px 12px; border-radius: 6px; font-size: .9rem; }
+.selected-channel { background: #e8f0fb; color: #124b87; font-weight: 650; }
+.eyebrow, .block-kind { color: #677384; font-size: .7rem; font-weight: 750; letter-spacing: .08em; }
+.incident { min-width: 0; }
+.incident-header { padding: 24px 30px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid #dce1e8; background: white; }
+.incident-header h2 { margin: 7px 0 5px; font-size: 1.45rem; }
+.incident-header p { margin: 0; color: #677384; }
+.incident-kicker { display: flex; gap: 12px; color: #536071; font-size: .8rem; font-weight: 650; text-transform: uppercase; }
+.severity { color: #a42d2d; }
+.primary-action { padding: 9px 15px; border: 0; border-radius: 6px; color: white; background: #1768ac; cursor: pointer; }
+.incident-layout { max-width: 1200px; margin: 0 auto; padding: 26px 30px; display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; }
+.feed { display: flex; flex-direction: column; gap: 14px; }
+.post, .composer, .state-panel { border: 1px solid #dce1e8; border-radius: 9px; background: white; }
+.post { padding: 16px; }
+.post-meta { margin-bottom: 10px; display: flex; gap: 10px; color: #758092; font-size: .8rem; }
+.author { color: #273548; font-weight: 700; }
+.block { padding: 13px 14px; border-left: 3px solid #7d91aa; border-radius: 4px; background: #f7f9fb; }
+.block-fact { border-left-color: #227a55; background: #f1f8f4; }
+.block p { margin: 7px 0; line-height: 1.5; }
+.text-action { padding: 0; border: 0; color: #1768ac; background: none; cursor: pointer; }
+.composer { padding: 16px; }
+.composer label { display: block; margin-bottom: 9px; font-weight: 700; }
+.composer textarea { width: 100%; min-height: 90px; resize: vertical; padding: 11px; border: 1px solid #b9c2cf; border-radius: 6px; }
+.composer-actions { margin-top: 10px; display: flex; justify-content: space-between; }
+.type-selector { border: 0; color: #46566a; background: transparent; }
+.state-panel { align-self: start; padding: 18px; }
+.state-panel h2 { margin: 0 0 15px; font-size: 1rem; }
+.state-panel h2:not(:first-child) { margin-top: 26px; }
+.state-field { padding: 10px 0; display: flex; justify-content: space-between; gap: 15px; border-bottom: 1px solid #e8ebef; font-size: .82rem; }
+.state-field span { color: #6d7888; }
+.state-field strong { text-align: right; }
+.check-item { margin: 11px 0; display: flex; gap: 8px; font-size: .85rem; }
+@media (max-width: 800px) { .workspace { grid-template-columns: 1fr; } .channel-nav { display: none; } .incident-layout { grid-template-columns: 1fr; padding: 18px; } .state-panel { grid-row: 1; } .incident-header { padding: 20px 18px; align-items: flex-start; flex-direction: column; } }
