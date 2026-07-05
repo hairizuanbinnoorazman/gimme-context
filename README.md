@@ -41,14 +41,17 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
-Phase 5 extends the M1 manual incident path with versioned incident templates,
+Phase 6 extends the M1 manual incident path with owner-managed incident
+memberships, participant roles, revocation, and explicit ownership handover to
+active members. Phase 5 added versioned incident templates,
 template defaults, and immutable per-incident template snapshots. Owned action
 state machines, eligible-voter polls, and quorum approvals bound to immutable action hashes,
 Evidence-linked facts, owner-accepted immutable decisions, verified summaries,
 closure gates, workspace-scoped incidents, typed posts, replies, and revisions
 remain available.
 The current store is in-memory for contract iteration; PostgreSQL durability,
-membership roles, and verified OIDC claims remain production-readiness work.
+role-based authorization across every operation, and verified OIDC claims remain
+production-readiness work.
 
 ## License
 

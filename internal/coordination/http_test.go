@@ -72,6 +72,37 @@ func TestDecisionHTTPFlow(t *testing.T) {
 	}
 }
 
+func TestMembershipOwnershipHTTPFlow(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents", bytes.NewBufferString(`{"title":"Latency","severity":"SEV-2"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	var incident Incident
+	_ = json.NewDecoder(recorder.Body).Decode(&incident)
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/members", bytes.NewBufferString(`{"principalId":"bob","role":"editor"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("add member status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/ownership-transfers", bytes.NewBufferString(`{"newOwnerId":"bob"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("transfer status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	_ = json.NewDecoder(recorder.Body).Decode(&incident)
+	if incident.OwnerID != "bob" {
+		t.Fatalf("owner = %q, want bob", incident.OwnerID)
+	}
+}
+
 func TestActionApprovalHTTPFlow(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewStore())

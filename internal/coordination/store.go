@@ -98,6 +98,19 @@ type ChecklistItem struct {
 	Completed bool   `json:"completed"`
 }
 
+type Membership struct {
+	WorkspaceID string     `json:"workspaceId"`
+	IncidentID  string     `json:"incidentId"`
+	PrincipalID string     `json:"principalId"`
+	Role        string     `json:"role"`
+	Source      string     `json:"source"`
+	Status      string     `json:"status"`
+	AddedBy     string     `json:"addedBy"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+}
+
 type Fact struct {
 	ID               string    `json:"id"`
 	WorkspaceID      string    `json:"workspaceId"`
@@ -196,21 +209,22 @@ type AuditEvent struct {
 }
 
 type Store struct {
-	mu        sync.RWMutex
-	incidents map[string]Incident
-	posts     map[string][]Post
-	facts     map[string][]Fact
-	decisions map[string][]Decision
-	actions   map[string][]Action
-	polls     map[string][]Poll
-	approvals map[string][]Approval
-	templates map[string][]IncidentTemplate
-	audit     []AuditEvent
-	now       func() time.Time
+	mu          sync.RWMutex
+	incidents   map[string]Incident
+	posts       map[string][]Post
+	facts       map[string][]Fact
+	decisions   map[string][]Decision
+	actions     map[string][]Action
+	polls       map[string][]Poll
+	approvals   map[string][]Approval
+	templates   map[string][]IncidentTemplate
+	memberships map[string][]Membership
+	audit       []AuditEvent
+	now         func() time.Time
 }
 
 func NewStore() *Store {
-	return &Store{incidents: make(map[string]Incident), posts: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), now: time.Now}
+	return &Store{incidents: make(map[string]Incident), posts: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), memberships: make(map[string][]Membership), now: time.Now}
 }
 
 func (s *Store) CreateTemplateVersion(workspaceID, actorID, templateID, name, description, severity string, scope []string, checklist []ChecklistItem) (IncidentTemplate, error) {
@@ -292,6 +306,115 @@ func (s *Store) CreateIncidentFromTemplate(workspaceID, actorID, templateID stri
 	return cloneIncident(incident), nil
 }
 
+func (s *Store) Memberships(workspaceID, incidentID string) ([]Membership, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return nil, ErrNotFound
+	}
+	return append([]Membership(nil), s.memberships[incidentID]...), nil
+}
+
+func (s *Store) AddMembership(workspaceID, incidentID, actorID, principalID, role string) (Membership, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return Membership{}, ErrNotFound
+	}
+	if actorID != incident.OwnerID {
+		return Membership{}, ErrForbidden
+	}
+	principalID = strings.TrimSpace(principalID)
+	if principalID == "" || !validMemberRole(role) || role == "owner" {
+		return Membership{}, ErrInvalid
+	}
+	for _, member := range s.memberships[incidentID] {
+		if member.PrincipalID == principalID && member.Status == "active" {
+			return Membership{}, ErrConflict
+		}
+	}
+	now := s.now().UTC()
+	member := Membership{WorkspaceID: workspaceID, IncidentID: incidentID, PrincipalID: principalID, Role: role, Source: "direct", Status: "active", AddedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	s.memberships[incidentID] = append(s.memberships[incidentID], member)
+	s.record(workspaceID, actorID, "membership.added", principalID, now)
+	return member, nil
+}
+
+func (s *Store) UpdateMembership(workspaceID, incidentID, actorID, principalID, role string, revoke bool) (Membership, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return Membership{}, ErrNotFound
+	}
+	if actorID != incident.OwnerID {
+		return Membership{}, ErrForbidden
+	}
+	if principalID == incident.OwnerID {
+		return Membership{}, ErrConflict
+	}
+	if !revoke && (!validMemberRole(role) || role == "owner") {
+		return Membership{}, ErrInvalid
+	}
+	for i := range s.memberships[incidentID] {
+		member := &s.memberships[incidentID][i]
+		if member.PrincipalID != principalID || member.Status != "active" {
+			continue
+		}
+		now := s.now().UTC()
+		member.UpdatedAt = now
+		if revoke {
+			member.Status, member.RevokedAt = "revoked", &now
+		} else {
+			member.Role = role
+		}
+		s.record(workspaceID, actorID, "membership.updated", principalID, now)
+		return *member, nil
+	}
+	return Membership{}, ErrNotFound
+}
+
+func (s *Store) TransferOwnership(workspaceID, incidentID, actorID, newOwnerID string) (Incident, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return Incident{}, ErrNotFound
+	}
+	if actorID != incident.OwnerID {
+		return Incident{}, ErrForbidden
+	}
+	if newOwnerID == "" || newOwnerID == actorID {
+		return Incident{}, ErrInvalid
+	}
+	memberIndex := -1
+	for i, member := range s.memberships[incidentID] {
+		if member.PrincipalID == newOwnerID && member.Status == "active" {
+			memberIndex = i
+			break
+		}
+	}
+	if memberIndex < 0 {
+		return Incident{}, ErrConflict
+	}
+	now := s.now().UTC()
+	for i := range s.memberships[incidentID] {
+		if s.memberships[incidentID][i].PrincipalID == actorID && s.memberships[incidentID][i].Status == "active" {
+			s.memberships[incidentID][i].Role, s.memberships[incidentID][i].UpdatedAt = "editor", now
+		}
+	}
+	s.memberships[incidentID][memberIndex].Role, s.memberships[incidentID][memberIndex].UpdatedAt = "owner", now
+	incident.OwnerID, incident.UpdatedAt = newOwnerID, now
+	s.incidents[incidentID] = incident
+	s.record(workspaceID, actorID, "incident.ownership_transferred", incidentID, now)
+	return cloneIncident(incident), nil
+}
+
+func validMemberRole(role string) bool {
+	return role == "owner" || role == "editor" || role == "participant" || role == "viewer"
+}
+
 func (s *Store) CreateIncident(workspaceID, actorID, title, description, severity string, scope []string) (Incident, error) {
 	title = strings.TrimSpace(title)
 	if workspaceID == "" || actorID == "" || title == "" || !validSeverity[severity] {
@@ -302,6 +425,7 @@ func (s *Store) CreateIncident(workspaceID, actorID, title, description, severit
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.incidents[incident.ID] = incident
+	s.memberships[incident.ID] = []Membership{{WorkspaceID: workspaceID, IncidentID: incident.ID, PrincipalID: actorID, Role: "owner", Source: "creator", Status: "active", AddedBy: actorID, CreatedAt: now, UpdatedAt: now}}
 	s.record(workspaceID, actorID, "incident.created", incident.ID, now)
 	return cloneIncident(incident), nil
 }
@@ -358,7 +482,7 @@ func (s *Store) UpdateIncident(workspaceID, id, actorID, lifecycle, severity, ow
 		incident.Severity = severity
 	}
 	if ownerID != "" {
-		incident.OwnerID = ownerID
+		return Incident{}, ErrInvalid
 	}
 	incident.UpdatedAt = s.now().UTC()
 	s.incidents[id] = incident

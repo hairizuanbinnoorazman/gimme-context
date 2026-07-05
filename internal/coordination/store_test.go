@@ -15,10 +15,12 @@ func TestManualIncidentLifecycle(t *testing.T) {
 		t.Fatalf("unexpected incident: %+v", incident)
 	}
 
-	incident, err = store.UpdateIncident("workspace-a", incident.ID, "alice", "investigating", "", "bob")
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "bob", "editor")
+	incident, err = store.TransferOwnership("workspace-a", incident.ID, "alice", "bob")
 	if err != nil {
 		t.Fatal(err)
 	}
+	incident, err = store.UpdateIncident("workspace-a", incident.ID, "bob", "investigating", "", "")
 	if incident.OwnerID != "bob" || incident.Lifecycle != "investigating" {
 		t.Fatalf("unexpected update: %+v", incident)
 	}
@@ -41,6 +43,35 @@ func TestWorkspaceIsolation(t *testing.T) {
 	}
 	if _, err := store.AddPost("workspace-b", incident.ID, "mallory", "", "", []Block{{Type: "markdown", Payload: map[string]any{"text": "leak"}}}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-workspace post error = %v, want not found", err)
+	}
+}
+
+func TestMembershipAndOwnershipTransfer(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	members, err := store.Memberships("workspace-a", incident.ID)
+	if err != nil || len(members) != 1 || members[0].Role != "owner" {
+		t.Fatalf("initial members = %+v, err = %v", members, err)
+	}
+	if _, err = store.AddMembership("workspace-a", incident.ID, "mallory", "bob", "editor"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("non-owner add error = %v, want forbidden", err)
+	}
+	if _, err = store.TransferOwnership("workspace-a", incident.ID, "alice", "bob"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("non-member transfer error = %v, want conflict", err)
+	}
+	if _, err = store.AddMembership("workspace-a", incident.ID, "alice", "bob", "editor"); err != nil {
+		t.Fatal(err)
+	}
+	incident, err = store.TransferOwnership("workspace-a", incident.ID, "alice", "bob")
+	if err != nil || incident.OwnerID != "bob" {
+		t.Fatalf("transferred incident = %+v, err = %v", incident, err)
+	}
+	members, _ = store.Memberships("workspace-a", incident.ID)
+	if members[0].Role != "editor" || members[1].Role != "owner" {
+		t.Fatalf("transferred roles = %+v", members)
+	}
+	if _, err = store.UpdateMembership("workspace-a", incident.ID, "bob", "bob", "", true); !errors.Is(err, ErrConflict) {
+		t.Fatalf("owner revocation error = %v, want conflict", err)
 	}
 }
 

@@ -199,6 +199,49 @@ paths:
               schema: { $ref: "#/components/schemas/Post" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/members:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+    get:
+      operationId: listIncidentMembers
+      responses:
+        "200": { description: Incident membership roster, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Membership" } } } } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: addIncidentMember
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AddMembership" } } } }
+      responses:
+        "201": { description: Member added by the incident owner, content: { application/json: { schema: { $ref: "#/components/schemas/Membership" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/members/{principalId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+      - { name: principalId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateIncidentMember
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/UpdateMembership" } } } }
+      responses:
+        "200": { description: Member role or status updated, content: { application/json: { schema: { $ref: "#/components/schemas/Membership" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/ownership-transfers:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/IncidentId"
+    post:
+      operationId: transferIncidentOwnership
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [newOwnerId], properties: { newOwnerId: { type: string, minLength: 1 } } } } } }
+      responses:
+        "200": { description: Ownership transferred to an active member, content: { application/json: { schema: { $ref: "#/components/schemas/Incident" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /workspaces/{workspaceId}/incidents/{incidentId}/posts/{postId}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
@@ -498,7 +541,35 @@ components:
       properties:
         lifecycle: { $ref: "#/components/schemas/Lifecycle" }
         severity: { $ref: "#/components/schemas/Severity" }
-        ownerId: { type: string }
+        ownerId: { type: string, deprecated: true, description: Use the ownership transfer operation. }
+    MembershipRole:
+      type: string
+      enum: [owner, editor, participant, viewer]
+    AddMembership:
+      type: object
+      required: [principalId, role]
+      properties:
+        principalId: { type: string, minLength: 1 }
+        role: { type: string, enum: [editor, participant, viewer] }
+    UpdateMembership:
+      type: object
+      properties:
+        role: { type: string, enum: [editor, participant, viewer] }
+        revoke: { type: boolean, default: false }
+    Membership:
+      type: object
+      required: [workspaceId, incidentId, principalId, role, source, status, addedBy, createdAt, updatedAt]
+      properties:
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        principalId: { type: string }
+        role: { $ref: "#/components/schemas/MembershipRole" }
+        source: { type: string, enum: [creator, direct] }
+        status: { type: string, enum: [active, revoked] }
+        addedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        revokedAt: { type: string, format: date-time }
     Incident:
       type: object
       required: [id, workspaceId, title, ownerId, severity, lifecycle, scope, closureChecklist, createdAt, updatedAt]

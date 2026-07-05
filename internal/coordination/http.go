@@ -62,6 +62,42 @@ func Register(mux *http.ServeMux, store *Store) {
 		incident, err := store.UpdateIncident(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.Lifecycle, input.Severity, input.OwnerID)
 		respond(w, http.StatusOK, incident, err)
 	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/members", func(w http.ResponseWriter, r *http.Request) {
+		items, err := store.Memberships(r.PathValue("workspaceID"), r.PathValue("incidentID"))
+		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/members", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			PrincipalID string `json:"principalId"`
+			Role        string `json:"role"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.AddMembership(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.PrincipalID, input.Role)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("PATCH /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/members/{principalID}", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Role   string `json:"role"`
+			Revoke bool   `json:"revoke"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.UpdateMembership(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), r.PathValue("principalID"), input.Role, input.Revoke)
+		respond(w, http.StatusOK, item, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/ownership-transfers", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			NewOwnerID string `json:"newOwnerId"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.TransferOwnership(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.NewOwnerID)
+		respond(w, http.StatusOK, item, err)
+	})
 	mux.HandleFunc("PATCH /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/resolution", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			VerifiedSummary string `json:"verifiedSummary"`
