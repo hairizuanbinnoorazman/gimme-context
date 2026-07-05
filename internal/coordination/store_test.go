@@ -211,3 +211,42 @@ func TestApprovalBindsActionSpecificationAndRejectsReplay(t *testing.T) {
 		t.Fatalf("approval replay = %v", err)
 	}
 }
+
+func TestTemplateVersionsAndIncidentSnapshotAreImmutable(t *testing.T) {
+	store := NewStore()
+	checklist := []ChecklistItem{{ID: "customer-impact", Label: "Customer impact documented"}}
+	v1, err := store.CreateTemplateVersion("workspace-a", "alice", "", "Service incident", "Initial response", "SEV-2", []string{"api"}, checklist)
+	if err != nil || v1.Version != 1 {
+		t.Fatalf("v1 = %+v, err = %v", v1, err)
+	}
+	incident, err := store.CreateIncidentFromTemplate("workspace-a", "bob", v1.ID, 1, "API errors", "", "", nil)
+	if err != nil || incident.Severity != "SEV-2" || incident.TemplateSnapshot.Version != 1 {
+		t.Fatalf("incident = %+v, err = %v", incident, err)
+	}
+	v2, err := store.CreateTemplateVersion("workspace-a", "alice", v1.ID, "Service incident", "Revised response", "SEV-1", []string{"api", "edge"}, []ChecklistItem{{ID: "recovery", Label: "Recovery verified"}})
+	if err != nil || v2.Version != 2 {
+		t.Fatalf("v2 = %+v, err = %v", v2, err)
+	}
+	stored, _ := store.Incident("workspace-a", incident.ID)
+	if stored.TemplateSnapshot.Version != 1 || stored.Severity != "SEV-2" || stored.ClosureChecklist[0].ID != "customer-impact" {
+		t.Fatalf("template update changed incident snapshot: %+v", stored)
+	}
+	latest, _ := store.Template("workspace-a", v1.ID, 0)
+	if latest.Version != 2 {
+		t.Fatalf("latest version = %d", latest.Version)
+	}
+}
+
+func TestTemplateWorkspaceIsolationAndValidation(t *testing.T) {
+	store := NewStore()
+	template, _ := store.CreateTemplateVersion("workspace-a", "alice", "", "Service incident", "", "SEV-2", nil, defaultClosureChecklist())
+	if _, err := store.Template("workspace-b", template.ID, 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-workspace template read = %v, want not found", err)
+	}
+	if _, err := store.CreateIncidentFromTemplate("workspace-b", "mallory", template.ID, 1, "Leak", "", "", nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-workspace template use = %v, want not found", err)
+	}
+	if _, err := store.CreateTemplateVersion("workspace-a", "alice", "", "Bad", "", "SEV-2", nil, []ChecklistItem{{ID: "same", Label: "One"}, {ID: "same", Label: "Two"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("duplicate checklist id = %v, want invalid", err)
+	}
+}

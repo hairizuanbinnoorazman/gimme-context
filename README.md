@@ -41,8 +41,9 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
-Phase 4 extends the M1 manual incident path with owned action state machines,
-eligible-voter polls, and quorum approvals bound to immutable action hashes.
+Phase 5 extends the M1 manual incident path with versioned incident templates,
+template defaults, and immutable per-incident template snapshots. Owned action
+state machines, eligible-voter polls, and quorum approvals bound to immutable action hashes,
 Evidence-linked facts, owner-accepted immutable decisions, verified summaries,
 closure gates, workspace-scoped incidents, typed posts, replies, and revisions
 remain available.

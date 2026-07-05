@@ -54,18 +54,42 @@ type Post struct {
 }
 
 type Incident struct {
+	ID               string            `json:"id"`
+	WorkspaceID      string            `json:"workspaceId"`
+	Title            string            `json:"title"`
+	Description      string            `json:"description,omitempty"`
+	OwnerID          string            `json:"ownerId"`
+	Severity         string            `json:"severity"`
+	Lifecycle        string            `json:"lifecycle"`
+	Scope            []string          `json:"scope"`
+	VerifiedSummary  string            `json:"verifiedSummary,omitempty"`
+	ClosureChecklist []ChecklistItem   `json:"closureChecklist"`
+	TemplateSnapshot *TemplateSnapshot `json:"templateSnapshot,omitempty"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
+}
+
+type IncidentTemplate struct {
 	ID               string          `json:"id"`
 	WorkspaceID      string          `json:"workspaceId"`
-	Title            string          `json:"title"`
+	Name             string          `json:"name"`
+	Version          int             `json:"version"`
 	Description      string          `json:"description,omitempty"`
-	OwnerID          string          `json:"ownerId"`
-	Severity         string          `json:"severity"`
-	Lifecycle        string          `json:"lifecycle"`
-	Scope            []string        `json:"scope"`
-	VerifiedSummary  string          `json:"verifiedSummary,omitempty"`
+	DefaultSeverity  string          `json:"defaultSeverity"`
+	DefaultScope     []string        `json:"defaultScope"`
 	ClosureChecklist []ChecklistItem `json:"closureChecklist"`
+	CreatedBy        string          `json:"createdBy"`
 	CreatedAt        time.Time       `json:"createdAt"`
-	UpdatedAt        time.Time       `json:"updatedAt"`
+}
+
+type TemplateSnapshot struct {
+	TemplateID       string          `json:"templateId"`
+	Version          int             `json:"version"`
+	Name             string          `json:"name"`
+	Description      string          `json:"description,omitempty"`
+	DefaultSeverity  string          `json:"defaultSeverity"`
+	DefaultScope     []string        `json:"defaultScope"`
+	ClosureChecklist []ChecklistItem `json:"closureChecklist"`
 }
 
 type ChecklistItem struct {
@@ -180,12 +204,92 @@ type Store struct {
 	actions   map[string][]Action
 	polls     map[string][]Poll
 	approvals map[string][]Approval
+	templates map[string][]IncidentTemplate
 	audit     []AuditEvent
 	now       func() time.Time
 }
 
 func NewStore() *Store {
-	return &Store{incidents: make(map[string]Incident), posts: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), now: time.Now}
+	return &Store{incidents: make(map[string]Incident), posts: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), now: time.Now}
+}
+
+func (s *Store) CreateTemplateVersion(workspaceID, actorID, templateID, name, description, severity string, scope []string, checklist []ChecklistItem) (IncidentTemplate, error) {
+	name, description = strings.TrimSpace(name), strings.TrimSpace(description)
+	if workspaceID == "" || actorID == "" || name == "" || !validSeverity[severity] || !validChecklist(checklist) {
+		return IncidentTemplate{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	creating := templateID == ""
+	if templateID == "" {
+		templateID = newID()
+	}
+	versions := s.templates[templateID]
+	if len(versions) == 0 && !creating {
+		// A caller-supplied ID denotes a new version of an existing template.
+		return IncidentTemplate{}, ErrNotFound
+	}
+	if len(versions) > 0 && versions[0].WorkspaceID != workspaceID {
+		return IncidentTemplate{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	t := IncidentTemplate{ID: templateID, WorkspaceID: workspaceID, Name: name, Version: len(versions) + 1, Description: description, DefaultSeverity: severity, DefaultScope: append([]string(nil), scope...), ClosureChecklist: cloneChecklist(checklist), CreatedBy: actorID, CreatedAt: now}
+	s.templates[templateID] = append(versions, t)
+	s.record(workspaceID, actorID, "template.version_created", templateID, now)
+	return cloneTemplate(t), nil
+}
+
+func (s *Store) Templates(workspaceID string) []IncidentTemplate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := []IncidentTemplate{}
+	for _, versions := range s.templates {
+		if len(versions) > 0 && versions[0].WorkspaceID == workspaceID {
+			items = append(items, cloneTemplate(versions[len(versions)-1]))
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	return items
+}
+
+func (s *Store) Template(workspaceID, templateID string, version int) (IncidentTemplate, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	versions := s.templates[templateID]
+	if len(versions) == 0 || versions[0].WorkspaceID != workspaceID {
+		return IncidentTemplate{}, ErrNotFound
+	}
+	if version == 0 {
+		version = len(versions)
+	}
+	if version < 1 || version > len(versions) {
+		return IncidentTemplate{}, ErrNotFound
+	}
+	return cloneTemplate(versions[version-1]), nil
+}
+
+func (s *Store) CreateIncidentFromTemplate(workspaceID, actorID, templateID string, version int, title, description, severity string, scope []string) (Incident, error) {
+	t, err := s.Template(workspaceID, templateID, version)
+	if err != nil {
+		return Incident{}, err
+	}
+	if severity == "" {
+		severity = t.DefaultSeverity
+	}
+	if len(scope) == 0 {
+		scope = append([]string(nil), t.DefaultScope...)
+	}
+	incident, err := s.CreateIncident(workspaceID, actorID, title, description, severity, scope)
+	if err != nil {
+		return Incident{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incident = s.incidents[incident.ID]
+	incident.ClosureChecklist = cloneChecklist(t.ClosureChecklist)
+	incident.TemplateSnapshot = &TemplateSnapshot{TemplateID: t.ID, Version: t.Version, Name: t.Name, Description: t.Description, DefaultSeverity: t.DefaultSeverity, DefaultScope: append([]string(nil), t.DefaultScope...), ClosureChecklist: cloneChecklist(t.ClosureChecklist)}
+	s.incidents[incident.ID] = incident
+	return cloneIncident(incident), nil
 }
 
 func (s *Store) CreateIncident(workspaceID, actorID, title, description, severity string, scope []string) (Incident, error) {
@@ -199,7 +303,7 @@ func (s *Store) CreateIncident(workspaceID, actorID, title, description, severit
 	defer s.mu.Unlock()
 	s.incidents[incident.ID] = incident
 	s.record(workspaceID, actorID, "incident.created", incident.ID, now)
-	return incident, nil
+	return cloneIncident(incident), nil
 }
 
 func (s *Store) Incident(workspaceID, id string) (Incident, error) {
@@ -209,7 +313,7 @@ func (s *Store) Incident(workspaceID, id string) (Incident, error) {
 	if !ok || incident.WorkspaceID != workspaceID {
 		return Incident{}, ErrNotFound
 	}
-	return incident, nil
+	return cloneIncident(incident), nil
 }
 
 func (s *Store) ListIncidents(workspaceID string) []Incident {
@@ -218,7 +322,7 @@ func (s *Store) ListIncidents(workspaceID string) []Incident {
 	items := make([]Incident, 0)
 	for _, incident := range s.incidents {
 		if incident.WorkspaceID == workspaceID {
-			items = append(items, incident)
+			items = append(items, cloneIncident(incident))
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
@@ -259,7 +363,7 @@ func (s *Store) UpdateIncident(workspaceID, id, actorID, lifecycle, severity, ow
 	incident.UpdatedAt = s.now().UTC()
 	s.incidents[id] = incident
 	s.record(workspaceID, actorID, "incident.updated", id, incident.UpdatedAt)
-	return incident, nil
+	return cloneIncident(incident), nil
 }
 
 func (s *Store) UpdateResolution(workspaceID, incidentID, actorID, summary, checklistItemID string, completed *bool) (Incident, error) {
@@ -297,7 +401,7 @@ func (s *Store) UpdateResolution(workspaceID, incidentID, actorID, summary, chec
 	incident.UpdatedAt = s.now().UTC()
 	s.incidents[incidentID] = incident
 	s.record(workspaceID, actorID, "incident.resolution_updated", incidentID, incident.UpdatedAt)
-	return incident, nil
+	return cloneIncident(incident), nil
 }
 
 func (s *Store) AddFact(workspaceID, incidentID, actorID, statement string, evidence []string) (Fact, error) {
@@ -704,6 +808,39 @@ func checklistComplete(items []ChecklistItem) bool {
 		}
 	}
 	return len(items) > 0
+}
+
+func validChecklist(items []ChecklistItem) bool {
+	if len(items) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == "" || strings.TrimSpace(item.Label) == "" || item.Completed || seen[item.ID] {
+			return false
+		}
+		seen[item.ID] = true
+	}
+	return true
+}
+func cloneChecklist(items []ChecklistItem) []ChecklistItem {
+	return append([]ChecklistItem(nil), items...)
+}
+func cloneTemplate(t IncidentTemplate) IncidentTemplate {
+	t.DefaultScope = append([]string(nil), t.DefaultScope...)
+	t.ClosureChecklist = cloneChecklist(t.ClosureChecklist)
+	return t
+}
+func cloneIncident(incident Incident) Incident {
+	incident.Scope = append([]string(nil), incident.Scope...)
+	incident.ClosureChecklist = cloneChecklist(incident.ClosureChecklist)
+	if incident.TemplateSnapshot != nil {
+		snapshot := *incident.TemplateSnapshot
+		snapshot.DefaultScope = append([]string(nil), snapshot.DefaultScope...)
+		snapshot.ClosureChecklist = cloneChecklist(snapshot.ClosureChecklist)
+		incident.TemplateSnapshot = &snapshot
+	}
+	return incident
 }
 
 func (s *Store) AddPost(workspaceID, incidentID, actorID, replyPostID, replyBlockID string, blocks []Block) (Post, error) {

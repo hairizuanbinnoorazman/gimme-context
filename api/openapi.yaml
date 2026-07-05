@@ -46,6 +46,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /workspaces/{workspaceId}/incident-templates:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listIncidentTemplates
+      responses:
+        "200":
+          description: Latest version of each workspace template
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/IncidentTemplate" } }
+    post:
+      operationId: createIncidentTemplate
+      parameters:
+        - $ref: "#/components/parameters/PrincipalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTemplateVersion" }
+      responses:
+        "201": { description: First template version created, content: { application/json: { schema: { $ref: "#/components/schemas/IncidentTemplate" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /workspaces/{workspaceId}/incident-templates/{templateId}/versions:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - { name: templateId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: createIncidentTemplateVersion
+      parameters:
+        - $ref: "#/components/parameters/PrincipalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTemplateVersion" }
+      responses:
+        "201": { description: Immutable template version created, content: { application/json: { schema: { $ref: "#/components/schemas/IncidentTemplate" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /workspaces/{workspaceId}/incident-templates/{templateId}/versions/{version}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - { name: templateId, in: path, required: true, schema: { type: string } }
+      - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      operationId: getIncidentTemplateVersion
+      responses:
+        "200": { description: Requested immutable template version, content: { application/json: { schema: { $ref: "#/components/schemas/IncidentTemplate" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
   /workspaces/{workspaceId}/incidents:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
@@ -430,11 +483,13 @@ components:
         message: { type: string }
     CreateIncident:
       type: object
-      required: [title, severity]
+      required: [title]
       properties:
         title: { type: string, minLength: 1 }
         description: { type: string }
         severity: { $ref: "#/components/schemas/Severity" }
+        templateId: { type: string }
+        templateVersion: { type: integer, minimum: 1, description: Omit to use the latest version. }
         scope:
           type: array
           items: { type: string }
@@ -462,6 +517,7 @@ components:
         closureChecklist:
           type: array
           items: { $ref: "#/components/schemas/ChecklistItem" }
+        templateSnapshot: { $ref: "#/components/schemas/TemplateSnapshot" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     Severity:
@@ -477,6 +533,40 @@ components:
         id: { type: string }
         label: { type: string }
         completed: { type: boolean }
+    CreateTemplateVersion:
+      type: object
+      required: [name, defaultSeverity, closureChecklist]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        defaultSeverity: { $ref: "#/components/schemas/Severity" }
+        defaultScope: { type: array, items: { type: string } }
+        closureChecklist: { type: array, minItems: 1, items: { $ref: "#/components/schemas/ChecklistItem" } }
+    IncidentTemplate:
+      type: object
+      required: [id, workspaceId, name, version, defaultSeverity, defaultScope, closureChecklist, createdBy, createdAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        name: { type: string }
+        version: { type: integer, minimum: 1 }
+        description: { type: string }
+        defaultSeverity: { $ref: "#/components/schemas/Severity" }
+        defaultScope: { type: array, items: { type: string } }
+        closureChecklist: { type: array, items: { $ref: "#/components/schemas/ChecklistItem" } }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+    TemplateSnapshot:
+      type: object
+      required: [templateId, version, name, defaultSeverity, defaultScope, closureChecklist]
+      properties:
+        templateId: { type: string }
+        version: { type: integer, minimum: 1 }
+        name: { type: string }
+        description: { type: string }
+        defaultSeverity: { $ref: "#/components/schemas/Severity" }
+        defaultScope: { type: array, items: { type: string } }
+        closureChecklist: { type: array, items: { $ref: "#/components/schemas/ChecklistItem" } }
     UpdateResolution:
       type: object
       description: Set a verified summary, update one checklist item, or both.
