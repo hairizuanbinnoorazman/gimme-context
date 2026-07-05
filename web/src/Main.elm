@@ -17,7 +17,7 @@ type alias Model =
     { workspace : String, actor : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe, agents : List Agent
     , active : Active, posts : List Post, draft : String, blockType : String, replyTo : Maybe Post, editing : Maybe Post
     , createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
-    , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, busy : Bool, error : Maybe String
+    , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, busy : Bool, error : Maybe String
     }
 
 type Active = None | IncidentActive Incident | ChannelActive Channel
@@ -48,21 +48,24 @@ type alias SimilarIncident = { incident : Incident, score : Int }
 type alias Agent = { id : String, name : String, purpose : String, model : String }
 type alias AgentRun = { id : String, status : String, task : String, terminationReason : String }
 type alias AIProposal = { id : String, kind : String, content : String, status : String, evidenceBlockIds : List String, redacted : Bool }
+type alias WorkflowDefinition = { id : String, name : String, version : Int }
+type alias WorkflowRun = { id : String, status : String, definitionVersion : Int, steps : List WorkflowStepState }
+type alias WorkflowStepState = { stepId : String, name : String, mode : String, risk : String, status : String, stoppedBy : String }
 
 type Msg
     = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String | SetBlockType String
     | Publish | SetReply Post | EditPost Post | CancelReply | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateChannel
     | AdvanceLifecycle | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
     | SetActor String | SetMember String | SetMemberRole String | AddMember | TransferOwnership | SetStructured String | SetStructuredType String | AddStructured
-    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | DismissError | Reload
+    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | SetWorkflow String | StartWorkflow | SetWorkflowView String | WorkflowCommand WorkflowRun String String | DismissError | Reload
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( { workspace = "acme", actor = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
       , draft = "", blockType = "markdown", replyTo = Nothing, editing = Nothing, createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
-      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], busy = True, error = Nothing }
-    , Cmd.batch [ get "incidents" "/api/v1/workspaces/acme/incidents", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents" ]
+      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", busy = True, error = Nothing }
+    , Cmd.batch [ get "incidents" "/api/v1/workspaces/acme/incidents", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents", get "workflowDefinitions" "/api/v1/workspaces/acme/workflow-definitions" ]
     )
 
 
@@ -70,7 +73,7 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         GotApi raw -> handleResponse raw model
-        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, collections = [], similar = [], agentRuns = [], aiProposals = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ get "posts" (incidentPath model incident.id ++ "/posts"), get "coordination" (incidentPath model incident.id ++ "/coordination"), get "collections" (incidentPath model incident.id ++ "/context-collections"), getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, get "agentRuns" (incidentPath model incident.id ++ "/agent-runs"), get "aiProposals" (incidentPath model incident.id ++ "/ai-proposals") ] )
+        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, collections = [], similar = [], agentRuns = [], aiProposals = [], workflowRuns = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ get "posts" (incidentPath model incident.id ++ "/posts"), get "coordination" (incidentPath model incident.id ++ "/coordination"), get "collections" (incidentPath model incident.id ++ "/context-collections"), getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, get "agentRuns" (incidentPath model incident.id ++ "/agent-runs"), get "aiProposals" (incidentPath model incident.id ++ "/ai-proposals"), get "workflowRuns" (incidentPath model incident.id ++ "/workflow-runs") ] )
         SelectChannel channel -> ( { model | active = ChannelActive channel, posts = [], error = Nothing }, get "posts" (channelPath model channel.id ++ "/posts") )
         SetDraft v -> ( { model | draft = v }, Cmd.none )
         SetBlockType v -> ( { model | blockType = v }, Cmd.none )
@@ -96,6 +99,10 @@ update msg model =
         ActivateAgent -> incidentCommand model "POST" "/agent-activations" (Encode.object [ ( "agentId", Encode.string model.agentId ) ])
         RunAgent -> incidentCommand model "POST" "/agent-runs" (Encode.object [ ( "agentId", Encode.string model.agentId ), ( "task", Encode.string model.agentTask ), ( "classification", Encode.string "internal" ), ( "evidenceBlockIds", Encode.list Encode.string (List.concatMap (\post -> List.map .id post.blocks) model.posts) ), ( "requiredCapabilities", Encode.list Encode.string [] ) ])
         ReviewProposal proposal status -> incidentCommand model "PATCH" ("/ai-proposals/" ++ proposal.id) (Encode.object [ ( "status", Encode.string status ) ])
+        SetWorkflow v -> ( { model | workflowId = v }, Cmd.none )
+        SetWorkflowView v -> ( { model | workflowView = v }, Cmd.none )
+        StartWorkflow -> incidentCommand model "POST" "/workflow-runs" (Encode.object [ ( "definitionId", Encode.string model.workflowId ), ( "definitionVersion", Encode.int 0 ), ( "variables", Encode.object [] ) ])
+        WorkflowCommand run commandName stepId -> incidentCommand model "POST" ("/workflow-runs/" ++ run.id ++ "/commands") (Encode.object [ ( "command", Encode.string commandName ), ( "stepId", Encode.string stepId ), ( "justification", Encode.string "Operator command from workflow view" ) ])
         CollectContext -> incidentCommand model "POST" "/context-collections" (Encode.object [ ( "recipeId", Encode.string model.recipeId ), ( "labels", Encode.object [] ) ])
         RefreshContext collection -> incidentCommand model "POST" ("/context-collections/" ++ collection.id ++ "/refresh") (Encode.object [ ( "labels", Encode.object [] ) ])
         DismissError -> ( { model | error = Nothing }, Cmd.none )
@@ -216,6 +223,12 @@ handleResponse raw model =
                 "aiProposals" -> case Decode.decodeValue (Decode.field "items" (Decode.list aiProposalDecoder)) response.body of
                     Ok items -> ( { model | aiProposals = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
+                "workflowDefinitions" -> case Decode.decodeValue (Decode.field "items" (Decode.list workflowDefinitionDecoder)) response.body of
+                    Ok items -> ( { model | workflowDefinitions = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
+                "workflowRuns" -> case Decode.decodeValue (Decode.field "items" (Decode.list workflowRunDecoder)) response.body of
+                    Ok items -> ( { model | workflowRuns = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
                 "collections" -> case Decode.decodeValue (Decode.field "items" (Decode.list contextCollectionDecoder)) response.body of
                     Ok items -> ( { model | collections = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
@@ -232,7 +245,7 @@ handleResponse raw model =
                     Ok incident -> ( replaceIncident incident { model | active = IncidentActive incident, summaryDraft = incident.verifiedSummary, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
                 "post" -> ( { model | busy = False }, refreshPosts model )
-                _ -> ( { model | createTitle = "", memberDraft = "", busy = False }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshCoordination model, refreshCollections model, refreshAgents model ] )
+                _ -> ( { model | createTitle = "", memberDraft = "", busy = False }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshCoordination model, refreshCollections model, refreshAgents model, refreshWorkflows model ] )
 
 
 replaceIncident : Incident -> Model -> Model
@@ -321,7 +334,36 @@ incidentState model incident =
         , h2 [] [ text "Structured coordination" ], select [ value model.structuredType, onChange SetStructuredType, attribute "aria-label" "Coordination type" ] (List.map (choice model.structuredType) [ "fact", "decision", "action", "poll" ]), textarea [ value model.structuredDraft, onInput SetStructured, placeholder "Statement, task, or question" ] [], button [ onClick AddStructured, disabled model.busy ] [ text "Add" ]
         , contextPanel model
         , agentPanel model
+        , workflowPanel model
         , coordinationView model
+        ]
+
+workflowPanel model =
+    div [ class "workflow-panel" ]
+        [ h2 [] [ text "Workflow and controlled autonomy" ]
+        , select [ value model.workflowId, onChange SetWorkflow, attribute "aria-label" "Workflow definition" ] (option [ value "" ] [ text "Select published workflow" ] :: List.map (\d -> option [ value d.id ] [ text (d.name ++ " v" ++ String.fromInt d.version) ]) model.workflowDefinitions)
+        , button [ onClick StartWorkflow, disabled (model.busy || model.workflowId == "") ] [ text "Start workflow" ]
+        , select [ value model.workflowView, onChange SetWorkflowView, attribute "aria-label" "Workflow projection" ] (List.map (choice model.workflowView) [ "checklist", "flow" ])
+        , div [] (List.map (viewWorkflowRun model.workflowView) model.workflowRuns)
+        ]
+
+viewWorkflowRun projection run =
+    div [ class ("workflow-run workflow-" ++ projection) ]
+        ([ p [] [ text ("Run v" ++ String.fromInt run.definitionVersion ++ " · " ++ run.status) ] ]
+            ++ List.map (viewWorkflowStep run) run.steps
+            ++ [ button [ onClick (WorkflowCommand run (if run.status == "paused" then "resume" else "pause") ""), disabled (run.status == "completed" || run.status == "cancelled") ] [ text (if run.status == "paused" then "Resume" else "Pause") ]
+               , button [ onClick (WorkflowCommand run "stop" ""), disabled (run.status == "completed" || run.status == "cancelled") ] [ text "Stop workflow" ]
+               ]
+        )
+
+viewWorkflowStep run step =
+    div [ class ("workflow-step step-" ++ step.status) ]
+        [ span [ class "block-kind" ] [ text step.name ], span [] [ text (step.mode ++ " · " ++ step.risk ++ " · " ++ step.status) ]
+        , if step.status == "pending" then button [ onClick (WorkflowCommand run "start-step" step.stepId) ] [ text "Start" ] else text ""
+        , if step.status == "in-progress" || step.status == "countdown" then button [ onClick (WorkflowCommand run "complete-step" step.stepId) ] [ text "Complete" ] else text ""
+        , if step.mode == "autonomous" && (step.status == "in-progress" || step.status == "countdown") then button [ onClick (WorkflowCommand run "stop-autonomy" step.stepId) ] [ text "Stop autonomy" ] else text ""
+        , if step.status == "stopped" then button [ onClick (WorkflowCommand run "restart-autonomy" step.stepId) ] [ text "Authorised restart" ] else text ""
+        , if step.status == "failed" then button [ onClick (WorkflowCommand run "retry-step" step.stepId) ] [ text "Retry" ] else text ""
         ]
 
 agentPanel model =
@@ -415,6 +457,10 @@ refreshAgents model =
     case model.active of
         IncidentActive i -> Cmd.batch [ get "agentRuns" (incidentPath model i.id ++ "/agent-runs"), get "aiProposals" (incidentPath model i.id ++ "/ai-proposals") ]
         _ -> Cmd.none
+refreshWorkflows model =
+    case model.active of
+        IncidentActive i -> get "workflowRuns" (incidentPath model i.id ++ "/workflow-runs")
+        _ -> Cmd.none
 
 responseDecoder = Decode.map4 Response (Decode.field "tag" Decode.string) (Decode.field "ok" Decode.bool) (Decode.field "status" Decode.int) (Decode.field "body" Decode.value)
 incidentDecoder = Decode.map8 Incident (Decode.field "id" Decode.string) (Decode.field "title" Decode.string) (Decode.field "ownerId" Decode.string) (Decode.field "severity" Decode.string) (Decode.field "lifecycle" Decode.string) (Decode.field "scope" (Decode.list Decode.string)) (Decode.oneOf [ Decode.field "verifiedSummary" Decode.string, Decode.succeed "" ]) (Decode.field "closureChecklist" (Decode.list checklistDecoder))
@@ -438,6 +484,9 @@ similarIncidentDecoder = Decode.map2 SimilarIncident (Decode.field "incident" in
 agentDecoder = Decode.map4 Agent (Decode.field "id" Decode.string) (Decode.field "name" Decode.string) (Decode.field "purpose" Decode.string) (Decode.field "model" Decode.string)
 agentRunDecoder = Decode.map4 AgentRun (Decode.field "id" Decode.string) (Decode.field "status" Decode.string) (Decode.field "task" Decode.string) (Decode.oneOf [ Decode.field "terminationReason" Decode.string, Decode.succeed "" ])
 aiProposalDecoder = Decode.map6 AIProposal (Decode.field "id" Decode.string) (Decode.field "kind" Decode.string) (Decode.field "content" Decode.string) (Decode.field "status" Decode.string) (Decode.field "evidenceBlockIds" (Decode.list Decode.string)) (Decode.field "redacted" Decode.bool)
+workflowDefinitionDecoder = Decode.map3 WorkflowDefinition (Decode.field "id" Decode.string) (Decode.field "name" Decode.string) (Decode.field "version" Decode.int)
+workflowRunDecoder = Decode.map4 WorkflowRun (Decode.field "id" Decode.string) (Decode.field "status" Decode.string) (Decode.field "definitionVersion" Decode.int) (Decode.field "steps" (Decode.list workflowStepStateDecoder))
+workflowStepStateDecoder = Decode.map6 WorkflowStepState (Decode.field "stepId" Decode.string) (Decode.field "name" Decode.string) (Decode.field "mode" Decode.string) (Decode.field "risk" Decode.string) (Decode.field "status" Decode.string) (Decode.oneOf [ Decode.field "stoppedBy" Decode.string, Decode.succeed "" ])
 
 subscriptions _ = apiResponse GotApi
 main = Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }

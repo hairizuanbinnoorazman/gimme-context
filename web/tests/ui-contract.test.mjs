@@ -17,3 +17,8 @@ test("critical actions remain available in the responsive interface", () => {
   assert.match(css, /@media \(max-width: 800px\)/);
   assert.doesNotMatch(css, /\.channel-nav\s*\{\s*display:\s*none/);
 });
+
+test("workflow safety controls are trusted and visible", () => {
+  for (const label of ["Workflow projection", "Start workflow", "Stop workflow", "Stop autonomy", "Authorised restart", "Retry"]) assert.match(main, new RegExp(label));
+  assert.match(main, /\[ "checklist", "flow" \]/);
+});

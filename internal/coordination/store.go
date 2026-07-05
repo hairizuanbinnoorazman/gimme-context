@@ -220,56 +220,60 @@ type AuditEvent struct {
 }
 
 type Store struct {
-	mu               sync.RWMutex
-	channels         map[string]PermanentChannel
-	incidents        map[string]Incident
-	posts            map[string][]Post
-	postHistory      map[string][]Post
-	facts            map[string][]Fact
-	decisions        map[string][]Decision
-	actions          map[string][]Action
-	polls            map[string][]Poll
-	approvals        map[string][]Approval
-	templates        map[string][]IncidentTemplate
-	memberships      map[string][]Membership
-	audit            []AuditEvent
-	contextRecipes   map[string][]ContextRecipe
-	collections      map[string][]ContextCollection
-	alertIncidents   map[string]string
-	contextService   ContextService
-	agents           map[string]AgentDefinition
-	activations      map[string][]AgentActivation
-	capabilityGrants map[string][]CapabilityGrant
-	agentRuns        map[string][]AgentRun
-	aiProposals      map[string][]AIProposal
-	collaboration    map[string][]CollaborationEnvelope
-	modelGateway     ModelGateway
-	now              func() time.Time
+	mu                  sync.RWMutex
+	channels            map[string]PermanentChannel
+	incidents           map[string]Incident
+	posts               map[string][]Post
+	postHistory         map[string][]Post
+	facts               map[string][]Fact
+	decisions           map[string][]Decision
+	actions             map[string][]Action
+	polls               map[string][]Poll
+	approvals           map[string][]Approval
+	templates           map[string][]IncidentTemplate
+	memberships         map[string][]Membership
+	audit               []AuditEvent
+	contextRecipes      map[string][]ContextRecipe
+	collections         map[string][]ContextCollection
+	alertIncidents      map[string]string
+	contextService      ContextService
+	agents              map[string]AgentDefinition
+	activations         map[string][]AgentActivation
+	capabilityGrants    map[string][]CapabilityGrant
+	agentRuns           map[string][]AgentRun
+	aiProposals         map[string][]AIProposal
+	collaboration       map[string][]CollaborationEnvelope
+	workflowDefinitions map[string][]WorkflowDefinition
+	workflowRuns        map[string][]WorkflowRun
+	modelGateway        ModelGateway
+	now                 func() time.Time
 }
 
 func NewStore() *Store {
 	return &Store{
-		channels:         make(map[string]PermanentChannel),
-		incidents:        make(map[string]Incident),
-		posts:            make(map[string][]Post),
-		postHistory:      make(map[string][]Post),
-		facts:            make(map[string][]Fact),
-		decisions:        make(map[string][]Decision),
-		actions:          make(map[string][]Action),
-		polls:            make(map[string][]Poll),
-		approvals:        make(map[string][]Approval),
-		templates:        make(map[string][]IncidentTemplate),
-		memberships:      make(map[string][]Membership),
-		contextRecipes:   make(map[string][]ContextRecipe),
-		collections:      make(map[string][]ContextCollection),
-		alertIncidents:   make(map[string]string),
-		agents:           make(map[string]AgentDefinition),
-		activations:      make(map[string][]AgentActivation),
-		capabilityGrants: make(map[string][]CapabilityGrant),
-		agentRuns:        make(map[string][]AgentRun),
-		aiProposals:      make(map[string][]AIProposal),
-		collaboration:    make(map[string][]CollaborationEnvelope),
-		now:              time.Now,
+		channels:            make(map[string]PermanentChannel),
+		incidents:           make(map[string]Incident),
+		posts:               make(map[string][]Post),
+		postHistory:         make(map[string][]Post),
+		facts:               make(map[string][]Fact),
+		decisions:           make(map[string][]Decision),
+		actions:             make(map[string][]Action),
+		polls:               make(map[string][]Poll),
+		approvals:           make(map[string][]Approval),
+		templates:           make(map[string][]IncidentTemplate),
+		memberships:         make(map[string][]Membership),
+		contextRecipes:      make(map[string][]ContextRecipe),
+		collections:         make(map[string][]ContextCollection),
+		alertIncidents:      make(map[string]string),
+		agents:              make(map[string]AgentDefinition),
+		activations:         make(map[string][]AgentActivation),
+		capabilityGrants:    make(map[string][]CapabilityGrant),
+		agentRuns:           make(map[string][]AgentRun),
+		aiProposals:         make(map[string][]AIProposal),
+		collaboration:       make(map[string][]CollaborationEnvelope),
+		workflowDefinitions: make(map[string][]WorkflowDefinition),
+		workflowRuns:        make(map[string][]WorkflowRun),
+		now:                 time.Now,
 	}
 }
 

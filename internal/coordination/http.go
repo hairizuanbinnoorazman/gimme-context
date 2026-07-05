@@ -331,6 +331,7 @@ func Register(mux *http.ServeMux, store *Store) {
 	})
 	registerContextHTTP(mux, store)
 	registerAgentHTTP(mux, store)
+	registerWorkflowHTTP(mux, store)
 }
 
 func postHistoryHandler(store *Store) http.HandlerFunc {

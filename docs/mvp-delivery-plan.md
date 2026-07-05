@@ -129,6 +129,12 @@ Implemented acceptance surface:
 
 ### M4: Workflow and controlled autonomy
 
+Status: complete for the M4 functional slice. Immutable workflow versions,
+side-effect-free simulation, mixed-step runs, audited operator commands, and
+the controlled-autonomy safety path are implemented against the in-memory
+contract store. Durable timer dispatch and PostgreSQL-backed workflow state
+remain M0 production-readiness dependencies.
+
 - Versioned workflow definition and flow/checklist projections
 - Human, agent, condition, timer, parallel, and approval steps
 - Simulation, pause, stop, retry, and explicit migration
@@ -138,6 +144,24 @@ Implemented acceptance surface:
 
 Exit condition: a mixed human/agent workflow executes with complete audit and
 cannot exceed its tested permissions.
+
+Implemented acceptance surface:
+
+- Immutable directed workflow versions with human, agent, condition, timer,
+  parallel, and approval steps plus flow/checklist projections
+- Side-effect-free simulation, definition-version pinning, explicit paused-run
+  migration, pause/resume/stop, step failure/retry, skip, and completion
+- Low, medium, high, and prohibited risk classification with validated autonomy
+  envelopes and approval-gated execution
+- Platform-minimum medium-risk countdowns that cannot be bypassed by callers
+- Universal autonomous-step stop for incident editors and restart restricted to
+  named authorised approvers, always returning through a fresh policy check
+- Append-only per-run transition records with actor, command, target step,
+  justification, and time, plus workspace audit events
+- Elm workflow controls with checklist/flow toggle, run controls, countdown
+  status, editor stop, authorised restart, and retry controls
+- Backend mixed-run, policy, migration, simulation, safety, and HTTP acceptance
+  tests plus a successful optimised Elm build
 
 ### M5: Sandboxed investigation and GitHub remediation
 

@@ -635,6 +635,61 @@ paths:
     post:
       summary: Record a minimal evidence and artifact envelope for agent collaboration
       responses: { "201": { description: Collaboration envelope recorded } }
+  /workspaces/{workspaceId}/workflow-definitions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }]
+    get:
+      operationId: listWorkflowDefinitions
+      responses:
+        "200": { description: Latest immutable workflow versions }
+    post:
+      operationId: createWorkflowDefinition
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateWorkflowVersion" } } } }
+      responses:
+        "201": { description: Workflow definition created, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowDefinition" } } } }
+  /workspaces/{workspaceId}/workflow-definitions/{definitionId}/versions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: definitionId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: createWorkflowVersion
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateWorkflowVersion" } } } }
+      responses:
+        "201": { description: New immutable workflow version }
+  /workspaces/{workspaceId}/workflow-definitions/{definitionId}/simulations:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: definitionId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: simulateWorkflow
+      description: Validates and projects execution without external effects or a persisted run.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { version: { type: integer, minimum: 1 }, variables: { type: object, additionalProperties: true } } } } } }
+      responses:
+        "200": { description: Side-effect-free execution projection, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowSimulation" } } } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/workflow-runs:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
+    get:
+      operationId: listWorkflowRuns
+      responses: { "200": { description: Incident workflow runs } }
+    post:
+      operationId: startWorkflowRun
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [definitionId], properties: { definitionId: { type: string }, definitionVersion: { type: integer, minimum: 0 }, variables: { type: object, additionalProperties: true } } } } } }
+      responses: { "201": { description: Workflow run pinned to an immutable definition version } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/workflow-runs/{runId}:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: runId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getWorkflowProjection
+      responses:
+        "200": { description: Flow and checklist projections of one run, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowProjection" } } } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/workflow-runs/{runId}/commands:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: runId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: commandWorkflowRun
+      description: Audited pause, resume, stop, step transition, retry, autonomy stop/restart, or explicit migration.
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowCommand" } } } }
+      responses:
+        "200": { description: Updated workflow run }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
 components:
   parameters:
     WorkspaceId:
@@ -675,6 +730,105 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    AutonomyEnvelope:
+      type: object
+      properties:
+        targets: { type: array, items: { type: string } }
+        scope: { type: array, items: { type: string } }
+        credentialScopes: { type: array, items: { type: string } }
+        forbiddenActions: { type: array, items: { type: string } }
+        maxDurationSeconds: { type: integer, minimum: 0 }
+        maxCostCents: { type: integer, minimum: 0 }
+    WorkflowStep:
+      type: object
+      required: [id, name, type, mode, dependsOn, risk, autonomyEnvelope]
+      properties:
+        id: { type: string, minLength: 1 }
+        name: { type: string, minLength: 1 }
+        type: { type: string, enum: [human, agent, condition, timer, parallel, approval] }
+        mode: { type: string, enum: [guided, approval-gated, autonomous] }
+        dependsOn: { type: array, uniqueItems: true, items: { type: string } }
+        assigneeId: { type: string }
+        agentId: { type: string }
+        risk: { type: string, enum: [low, medium, high, prohibited] }
+        sponsorId: { type: string }
+        authorisedApproverIds: { type: array, uniqueItems: true, items: { type: string } }
+        countdownSeconds: { type: integer, minimum: 0, description: Medium risk requires the platform minimum of 30 seconds. }
+        autonomyEnvelope: { $ref: "#/components/schemas/AutonomyEnvelope" }
+    CreateWorkflowVersion:
+      type: object
+      required: [name, steps]
+      properties:
+        name: { type: string, minLength: 1 }
+        steps: { type: array, minItems: 1, items: { $ref: "#/components/schemas/WorkflowStep" } }
+    WorkflowDefinition:
+      type: object
+      required: [id, workspaceId, name, version, steps, createdBy, createdAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        name: { type: string }
+        version: { type: integer, minimum: 1 }
+        steps: { type: array, items: { $ref: "#/components/schemas/WorkflowStep" } }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+    WorkflowStepState:
+      type: object
+      required: [stepId, name, type, mode, risk, status, attempt]
+      properties:
+        stepId: { type: string }
+        name: { type: string }
+        type: { type: string }
+        mode: { type: string }
+        risk: { type: string }
+        status: { type: string, enum: [pending, countdown, in-progress, completed, failed, skipped, stopped] }
+        attempt: { type: integer, minimum: 0 }
+        countdownEndsAt: { type: string, format: date-time }
+        stoppedBy: { type: string }
+        output: { type: string }
+    WorkflowRun:
+      type: object
+      required: [id, workspaceId, incidentId, definitionId, definitionVersion, status, variables, steps, transitions, createdBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        definitionId: { type: string }
+        definitionVersion: { type: integer, minimum: 1 }
+        status: { type: string, enum: [running, paused, completed, cancelled] }
+        variables: { type: object, additionalProperties: true }
+        steps: { type: array, items: { $ref: "#/components/schemas/WorkflowStepState" } }
+        transitions: { type: array, items: { type: object, additionalProperties: true } }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    WorkflowProjection:
+      type: object
+      required: [definition, run, flow, checklist]
+      properties:
+        definition: { $ref: "#/components/schemas/WorkflowDefinition" }
+        run: { $ref: "#/components/schemas/WorkflowRun" }
+        flow: { type: array, items: { $ref: "#/components/schemas/WorkflowStep" } }
+        checklist: { type: array, items: { $ref: "#/components/schemas/WorkflowStepState" } }
+    WorkflowSimulation:
+      type: object
+      required: [definitionId, definitionVersion, valid, executionOrder, blockedSteps, variables]
+      properties:
+        definitionId: { type: string }
+        definitionVersion: { type: integer }
+        valid: { type: boolean }
+        executionOrder: { type: array, items: { type: string } }
+        blockedSteps: { type: array, items: { type: string } }
+        variables: { type: object, additionalProperties: true }
+    WorkflowCommand:
+      type: object
+      required: [command]
+      properties:
+        command: { type: string, enum: [pause, resume, stop, migrate, start-step, complete-step, fail-step, retry-step, skip-step, stop-autonomy, restart-autonomy] }
+        stepId: { type: string }
+        justification: { type: string }
+        output: { type: string }
+        targetVersion: { type: integer, minimum: 1 }
     ContextQuery:
       type: object
       required: [name, source, query]
