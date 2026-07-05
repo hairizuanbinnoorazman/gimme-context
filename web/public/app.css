@@ -1,0 +1,49 @@
+:root {
+  color-scheme: light;
+  font-family: Roboto, system-ui, sans-serif;
+  background: #f5f7fa;
+  color: #17202a;
+}
+
+body {
+  margin: 0;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  padding: 0 24px;
+  color: white;
+  background: #174ea6;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 18%);
+}
+
+.top-bar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.main-content {
+  max-width: 960px;
+  margin: 48px auto;
+  padding: 0 24px;
+}
+
+.surface {
+  padding: 32px;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 16%);
+}
+
+@media (max-width: 600px) {
+  .main-content {
+    margin: 20px auto;
+    padding: 0 12px;
+  }
+
+  .surface {
+    padding: 20px;
+  }
+}

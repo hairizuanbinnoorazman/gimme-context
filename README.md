@@ -23,7 +23,25 @@ channels.
 - Identity: OpenID Connect, tested with Keycloak and Dex
 - Initial integrations: Prometheus, Alertmanager, Loki, and GitHub
 
-The project is currently in product and architecture definition.
+## Local development
+
+Prerequisites are Go 1.26, Elm 0.19.1, Node.js 24, and npm 11.
+
+```sh
+make test
+make build
+make web-build
+```
+
+Run the API with `go run ./cmd/api`; it listens on port 8080 by default and
+exposes `/health/live`, `/health/ready`, and `/api/v1`. Run the asynchronous
+worker separately with `go run ./cmd/worker`.
+
+The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
+container with target `api` or `worker`, and build the frontend with
+`web/Dockerfile`.
+
+The project is implementing the M0 contracts and foundations milestone.
 
 ## License
 

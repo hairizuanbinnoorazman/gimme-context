@@ -1,0 +1,11 @@
+# Go
+/bin/
+/coverage.out
+
+# Elm and npm
+/web/elm-stuff/
+/web/node_modules/
+/web/dist/
+
+# Local configuration
+.env

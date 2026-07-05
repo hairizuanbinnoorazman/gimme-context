@@ -1,0 +1,22 @@
+image:
+  repository: gimme-context
+  tag: latest
+  pullPolicy: IfNotPresent
+
+workerImage:
+  repository: gimme-context-worker
+  tag: latest
+  pullPolicy: IfNotPresent
+
+webImage:
+  repository: gimme-context-web
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+service:
+  type: ClusterIP
+  apiPort: 8080
+  webPort: 8080
+
+resources: {}
