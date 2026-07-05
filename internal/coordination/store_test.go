@@ -142,3 +142,72 @@ func TestResolutionRequiresSummaryAndCompletedChecklist(t *testing.T) {
 		t.Fatalf("incident = %+v, err = %v", incident, err)
 	}
 }
+
+func TestActionLifecycleAndOwnership(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	action, err := store.AddAction("workspace-a", incident.ID, "alice", "Roll back", "bob", "deploy.rollback", map[string]any{"service": "checkout", "version": "v2"}, "Error rate recovers")
+	if err != nil || len(action.SpecificationHash) != 64 {
+		t.Fatalf("action = %+v, err = %v", action, err)
+	}
+	if _, err = store.UpdateAction("workspace-a", incident.ID, action.ID, "mallory", "ready"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unauthorized update = %v", err)
+	}
+	action.Specification.Parameters["version"] = "tampered"
+	stored, _ := store.Actions("workspace-a", incident.ID)
+	if stored[0].Specification.Parameters["version"] != "v2" {
+		t.Fatal("returned action mutated its immutable stored specification")
+	}
+	for _, state := range []string{"ready", "in-progress", "verification", "completed"} {
+		action, err = store.UpdateAction("workspace-a", incident.ID, action.ID, "bob", state)
+		if err != nil || action.Status != state {
+			t.Fatalf("state %s: action = %+v, err = %v", state, action, err)
+		}
+	}
+	if _, err = store.UpdateAction("workspace-a", incident.ID, action.ID, "bob", "in-progress"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("terminal transition = %v", err)
+	}
+}
+
+func TestPollEligibilityAndVoteChangePolicy(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	poll, err := store.AddPoll("workspace-a", incident.ID, "alice", "Roll back?", "advisory", []string{"Yes", "No"}, []string{"alice", "bob"}, 2, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Vote("workspace-a", incident.ID, poll.ID, "mallory", poll.Options[0].ID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("ineligible vote = %v", err)
+	}
+	poll, err = store.Vote("workspace-a", incident.ID, poll.ID, "bob", poll.Options[0].ID)
+	if err != nil || len(poll.Votes) != 1 {
+		t.Fatalf("poll = %+v, err = %v", poll, err)
+	}
+	if _, err = store.Vote("workspace-a", incident.ID, poll.ID, "bob", poll.Options[1].ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed vote = %v", err)
+	}
+}
+
+func TestApprovalBindsActionSpecificationAndRejectsReplay(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	action, _ := store.AddAction("workspace-a", incident.ID, "alice", "Roll back", "bob", "deploy.rollback", map[string]any{"version": "v2"}, "")
+	approval, err := store.RequestApproval("workspace-a", incident.ID, action.ID, "alice", []string{"carol", "dave"}, 2)
+	if err != nil || approval.SpecificationHash != action.SpecificationHash {
+		t.Fatalf("approval = %+v, err = %v", approval, err)
+	}
+	if _, err = store.RespondApproval("workspace-a", incident.ID, approval.ID, "mallory", "approve"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("ineligible response = %v", err)
+	}
+	approval, _ = store.RespondApproval("workspace-a", incident.ID, approval.ID, "carol", "approve")
+	if approval.Outcome != "pending" {
+		t.Fatalf("outcome = %s", approval.Outcome)
+	}
+	approval, err = store.RespondApproval("workspace-a", incident.ID, approval.ID, "dave", "approve")
+	if err != nil || approval.Outcome != "approved" {
+		t.Fatalf("approval = %+v, err = %v", approval, err)
+	}
+	if _, err = store.RespondApproval("workspace-a", incident.ID, approval.ID, "carol", "approve"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("approval replay = %v", err)
+	}
+}

@@ -303,6 +303,71 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Decision" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/actions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
+    get:
+      operationId: listActions
+      responses:
+        "200":
+          description: Structured incident actions
+          content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Action" } } } } } }
+    post:
+      operationId: createAction
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateAction" } } } }
+      responses:
+        "201": { description: Owned action created, content: { application/json: { schema: { $ref: "#/components/schemas/Action" } } } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/actions/{actionId}:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: actionId, in: path, required: true, schema: { type: string } }]
+    patch:
+      operationId: updateActionStatus
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status], properties: { status: { $ref: "#/components/schemas/ActionStatus" } } } } } }
+      responses:
+        "200": { description: Action status updated, content: { application/json: { schema: { $ref: "#/components/schemas/Action" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/polls:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
+    get:
+      operationId: listPolls
+      responses:
+        "200": { description: Incident polls, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Poll" } } } } } } }
+    post:
+      operationId: createPoll
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreatePoll" } } } }
+      responses:
+        "201": { description: Poll created, content: { application/json: { schema: { $ref: "#/components/schemas/Poll" } } } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/polls/{pollId}/votes:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: pollId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: castVote
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [optionId], properties: { optionId: { type: string } } } } } }
+      responses:
+        "200": { description: Vote recorded, content: { application/json: { schema: { $ref: "#/components/schemas/Poll" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /workspaces/{workspaceId}/incidents/{incidentId}/approvals:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
+    get:
+      operationId: listApprovals
+      responses:
+        "200": { description: Incident approvals, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Approval" } } } } } } }
+    post:
+      operationId: requestApproval
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RequestApproval" } } } }
+      responses:
+        "201": { description: Approval bound to the current action specification, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/approvals/{approvalId}/responses:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: approvalId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: respondToApproval
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [approve, reject] } } } } } }
+      responses:
+        "200": { description: Approval response recorded, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
 components:
   parameters:
     WorkspaceId:
@@ -462,6 +527,90 @@ components:
         evidenceBlockIds: { type: array, items: { type: string } }
         proposedBy: { type: string }
         decidedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ActionStatus:
+      type: string
+      enum: [proposed, ready, in-progress, blocked, verification, completed, failed, cancelled]
+    ActionSpecification:
+      type: object
+      required: [kind, parameters]
+      properties:
+        kind: { type: string, minLength: 1 }
+        parameters: { type: object, additionalProperties: true }
+    CreateAction:
+      type: object
+      required: [title, ownerId, kind, parameters]
+      properties:
+        title: { type: string, minLength: 1 }
+        ownerId: { type: string, minLength: 1 }
+        kind: { type: string, minLength: 1 }
+        parameters: { type: object, additionalProperties: true }
+        verificationCriteria: { type: string }
+    Action:
+      type: object
+      required: [id, workspaceId, incidentId, title, ownerId, status, specification, specificationHash, createdBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        title: { type: string }
+        ownerId: { type: string }
+        status: { $ref: "#/components/schemas/ActionStatus" }
+        specification: { $ref: "#/components/schemas/ActionSpecification" }
+        specificationHash: { type: string, pattern: "^[0-9a-f]{64}$" }
+        verificationCriteria: { type: string }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreatePoll:
+      type: object
+      required: [question, mode, options, eligibleVoterIds, quorum]
+      properties:
+        question: { type: string, minLength: 1 }
+        mode: { type: string, enum: [advisory, binding] }
+        options: { type: array, minItems: 2, items: { type: string, minLength: 1 } }
+        eligibleVoterIds: { type: array, minItems: 1, uniqueItems: true, items: { type: string } }
+        quorum: { type: integer, minimum: 1 }
+        allowVoteChanges: { type: boolean, default: false }
+    Poll:
+      type: object
+      required: [id, workspaceId, incidentId, question, mode, options, eligibleVoterIds, quorum, allowVoteChanges, votes, createdBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        question: { type: string }
+        mode: { type: string, enum: [advisory, binding] }
+        options: { type: array, items: { type: object, required: [id, label], properties: { id: { type: string }, label: { type: string } } } }
+        eligibleVoterIds: { type: array, items: { type: string } }
+        quorum: { type: integer }
+        allowVoteChanges: { type: boolean }
+        votes: { type: array, items: { type: object, required: [voterId, optionId, castAt], properties: { voterId: { type: string }, optionId: { type: string }, castAt: { type: string, format: date-time } } } }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    RequestApproval:
+      type: object
+      required: [actionId, eligibleApproverIds, quorum]
+      properties:
+        actionId: { type: string }
+        eligibleApproverIds: { type: array, minItems: 1, uniqueItems: true, items: { type: string } }
+        quorum: { type: integer, minimum: 1 }
+    Approval:
+      type: object
+      required: [id, workspaceId, incidentId, actionId, specificationHash, eligibleApproverIds, quorum, responses, outcome, createdBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        incidentId: { type: string }
+        actionId: { type: string }
+        specificationHash: { type: string, pattern: "^[0-9a-f]{64}$" }
+        eligibleApproverIds: { type: array, items: { type: string } }
+        quorum: { type: integer }
+        responses: { type: array, items: { type: object, required: [approverId, decision, respondedAt], properties: { approverId: { type: string }, decision: { type: string, enum: [approve, reject] }, respondedAt: { type: string, format: date-time } } } }
+        outcome: { type: string, enum: [pending, approved, rejected] }
+        createdBy: { type: string }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     CreatePost:

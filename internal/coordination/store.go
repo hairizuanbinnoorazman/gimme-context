@@ -2,7 +2,9 @@ package coordination
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -99,6 +101,71 @@ type Decision struct {
 	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
+type ActionSpecification struct {
+	Kind       string         `json:"kind"`
+	Parameters map[string]any `json:"parameters"`
+}
+
+type Action struct {
+	ID                   string              `json:"id"`
+	WorkspaceID          string              `json:"workspaceId"`
+	IncidentID           string              `json:"incidentId"`
+	Title                string              `json:"title"`
+	OwnerID              string              `json:"ownerId"`
+	Status               string              `json:"status"`
+	Specification        ActionSpecification `json:"specification"`
+	SpecificationHash    string              `json:"specificationHash"`
+	VerificationCriteria string              `json:"verificationCriteria,omitempty"`
+	CreatedBy            string              `json:"createdBy"`
+	CreatedAt            time.Time           `json:"createdAt"`
+	UpdatedAt            time.Time           `json:"updatedAt"`
+}
+
+type PollOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+type Vote struct {
+	VoterID  string    `json:"voterId"`
+	OptionID string    `json:"optionId"`
+	CastAt   time.Time `json:"castAt"`
+}
+type Poll struct {
+	ID               string       `json:"id"`
+	WorkspaceID      string       `json:"workspaceId"`
+	IncidentID       string       `json:"incidentId"`
+	Question         string       `json:"question"`
+	Mode             string       `json:"mode"`
+	Options          []PollOption `json:"options"`
+	EligibleVoterIDs []string     `json:"eligibleVoterIds"`
+	Quorum           int          `json:"quorum"`
+	AllowVoteChanges bool         `json:"allowVoteChanges"`
+	Votes            []Vote       `json:"votes"`
+	CreatedBy        string       `json:"createdBy"`
+	CreatedAt        time.Time    `json:"createdAt"`
+	UpdatedAt        time.Time    `json:"updatedAt"`
+}
+
+type ApprovalResponse struct {
+	ApproverID  string    `json:"approverId"`
+	Decision    string    `json:"decision"`
+	RespondedAt time.Time `json:"respondedAt"`
+}
+type Approval struct {
+	ID                  string             `json:"id"`
+	WorkspaceID         string             `json:"workspaceId"`
+	IncidentID          string             `json:"incidentId"`
+	ActionID            string             `json:"actionId"`
+	SpecificationHash   string             `json:"specificationHash"`
+	EligibleApproverIDs []string           `json:"eligibleApproverIds"`
+	Quorum              int                `json:"quorum"`
+	Responses           []ApprovalResponse `json:"responses"`
+	Outcome             string             `json:"outcome"`
+	CreatedBy           string             `json:"createdBy"`
+	CreatedAt           time.Time          `json:"createdAt"`
+	UpdatedAt           time.Time          `json:"updatedAt"`
+}
+
 type AuditEvent struct {
 	ID, WorkspaceID, ActorID, Action, TargetID string
 	At                                         time.Time
@@ -110,12 +177,15 @@ type Store struct {
 	posts     map[string][]Post
 	facts     map[string][]Fact
 	decisions map[string][]Decision
+	actions   map[string][]Action
+	polls     map[string][]Poll
+	approvals map[string][]Approval
 	audit     []AuditEvent
 	now       func() time.Time
 }
 
 func NewStore() *Store {
-	return &Store{incidents: make(map[string]Incident), posts: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), now: time.Now}
+	return &Store{incidents: make(map[string]Incident), posts: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), now: time.Now}
 }
 
 func (s *Store) CreateIncident(workspaceID, actorID, title, description, severity string, scope []string) (Incident, error) {
@@ -332,6 +402,273 @@ func (s *Store) Decisions(workspaceID, incidentID string) ([]Decision, error) {
 		return nil, ErrNotFound
 	}
 	return append([]Decision(nil), s.decisions[incidentID]...), nil
+}
+
+func (s *Store) AddAction(workspaceID, incidentID, actorID, title, ownerID, kind string, parameters map[string]any, verification string) (Action, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return Action{}, ErrNotFound
+	}
+	title, ownerID, kind = strings.TrimSpace(title), strings.TrimSpace(ownerID), strings.TrimSpace(kind)
+	if actorID == "" || title == "" || ownerID == "" || kind == "" || parameters == nil {
+		return Action{}, ErrInvalid
+	}
+	encodedParameters, err := json.Marshal(parameters)
+	if err != nil {
+		return Action{}, ErrInvalid
+	}
+	var immutableParameters map[string]any
+	if err := json.Unmarshal(encodedParameters, &immutableParameters); err != nil {
+		return Action{}, ErrInvalid
+	}
+	spec := ActionSpecification{Kind: kind, Parameters: immutableParameters}
+	hash, err := specificationHash(spec)
+	if err != nil {
+		return Action{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	action := Action{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, Title: title, OwnerID: ownerID, Status: "proposed", Specification: spec, SpecificationHash: hash, VerificationCriteria: strings.TrimSpace(verification), CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	s.actions[incidentID] = append(s.actions[incidentID], action)
+	s.record(workspaceID, actorID, "action.created", action.ID, now)
+	return cloneAction(action), nil
+}
+
+func (s *Store) UpdateAction(workspaceID, incidentID, actionID, actorID, status string) (Action, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return Action{}, ErrNotFound
+	}
+	for i := range s.actions[incidentID] {
+		a := &s.actions[incidentID][i]
+		if a.ID != actionID {
+			continue
+		}
+		if actorID != a.OwnerID && actorID != incident.OwnerID {
+			return Action{}, ErrForbidden
+		}
+		allowed := map[string]map[string]bool{
+			"proposed": {"ready": true, "cancelled": true}, "ready": {"in-progress": true, "cancelled": true},
+			"in-progress": {"blocked": true, "verification": true, "failed": true, "cancelled": true},
+			"blocked":     {"in-progress": true, "failed": true, "cancelled": true}, "verification": {"completed": true, "in-progress": true, "failed": true},
+		}
+		if !allowed[a.Status][status] {
+			return Action{}, ErrConflict
+		}
+		a.Status, a.UpdatedAt = status, s.now().UTC()
+		s.record(workspaceID, actorID, "action."+status, actionID, a.UpdatedAt)
+		return cloneAction(*a), nil
+	}
+	return Action{}, ErrNotFound
+}
+
+func (s *Store) Actions(workspaceID, incidentID string) ([]Action, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return nil, ErrNotFound
+	}
+	items := make([]Action, len(s.actions[incidentID]))
+	for i, action := range s.actions[incidentID] {
+		items[i] = cloneAction(action)
+	}
+	return items, nil
+}
+
+func (s *Store) AddPoll(workspaceID, incidentID, actorID, question, mode string, labels, eligible []string, quorum int, allowChanges bool) (Poll, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return Poll{}, ErrNotFound
+	}
+	question = strings.TrimSpace(question)
+	if actorID == "" || question == "" || (mode != "advisory" && mode != "binding") || len(labels) < 2 || len(eligible) == 0 || quorum < 1 || quorum > len(eligible) || hasDuplicates(eligible) {
+		return Poll{}, ErrInvalid
+	}
+	options := make([]PollOption, len(labels))
+	for i, label := range labels {
+		if strings.TrimSpace(label) == "" {
+			return Poll{}, ErrInvalid
+		}
+		options[i] = PollOption{ID: newID(), Label: strings.TrimSpace(label)}
+	}
+	now := s.now().UTC()
+	poll := Poll{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, Question: question, Mode: mode, Options: options, EligibleVoterIDs: append([]string(nil), eligible...), Quorum: quorum, AllowVoteChanges: allowChanges, Votes: []Vote{}, CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	s.polls[incidentID] = append(s.polls[incidentID], poll)
+	s.record(workspaceID, actorID, "poll.created", poll.ID, now)
+	return poll, nil
+}
+
+func (s *Store) Vote(workspaceID, incidentID, pollID, actorID, optionID string) (Poll, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return Poll{}, ErrNotFound
+	}
+	for i := range s.polls[incidentID] {
+		p := &s.polls[incidentID][i]
+		if p.ID != pollID {
+			continue
+		}
+		if !contains(p.EligibleVoterIDs, actorID) {
+			return Poll{}, ErrForbidden
+		}
+		if !pollHasOption(*p, optionID) {
+			return Poll{}, ErrInvalid
+		}
+		now := s.now().UTC()
+		for j := range p.Votes {
+			if p.Votes[j].VoterID == actorID {
+				if !p.AllowVoteChanges {
+					return Poll{}, ErrConflict
+				}
+				p.Votes[j] = Vote{VoterID: actorID, OptionID: optionID, CastAt: now}
+				p.UpdatedAt = now
+				s.record(workspaceID, actorID, "poll.vote_changed", pollID, now)
+				return *p, nil
+			}
+		}
+		p.Votes = append(p.Votes, Vote{VoterID: actorID, OptionID: optionID, CastAt: now})
+		p.UpdatedAt = now
+		s.record(workspaceID, actorID, "poll.voted", pollID, now)
+		return *p, nil
+	}
+	return Poll{}, ErrNotFound
+}
+
+func (s *Store) Polls(workspaceID, incidentID string) ([]Poll, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return nil, ErrNotFound
+	}
+	return append([]Poll(nil), s.polls[incidentID]...), nil
+}
+
+func (s *Store) RequestApproval(workspaceID, incidentID, actionID, actorID string, eligible []string, quorum int) (Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return Approval{}, ErrNotFound
+	}
+	if actorID == "" || len(eligible) == 0 || quorum < 1 || quorum > len(eligible) || hasDuplicates(eligible) {
+		return Approval{}, ErrInvalid
+	}
+	var action *Action
+	for i := range s.actions[incidentID] {
+		if s.actions[incidentID][i].ID == actionID {
+			action = &s.actions[incidentID][i]
+			break
+		}
+	}
+	if action == nil {
+		return Approval{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	approval := Approval{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, ActionID: actionID, SpecificationHash: action.SpecificationHash, EligibleApproverIDs: append([]string(nil), eligible...), Quorum: quorum, Responses: []ApprovalResponse{}, Outcome: "pending", CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	s.approvals[incidentID] = append(s.approvals[incidentID], approval)
+	s.record(workspaceID, actorID, "approval.requested", approval.ID, now)
+	return approval, nil
+}
+
+func (s *Store) RespondApproval(workspaceID, incidentID, approvalID, actorID, decision string) (Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return Approval{}, ErrNotFound
+	}
+	if decision != "approve" && decision != "reject" {
+		return Approval{}, ErrInvalid
+	}
+	for i := range s.approvals[incidentID] {
+		a := &s.approvals[incidentID][i]
+		if a.ID != approvalID {
+			continue
+		}
+		if a.Outcome != "pending" {
+			return Approval{}, ErrConflict
+		}
+		if !contains(a.EligibleApproverIDs, actorID) {
+			return Approval{}, ErrForbidden
+		}
+		for _, response := range a.Responses {
+			if response.ApproverID == actorID {
+				return Approval{}, ErrConflict
+			}
+		}
+		now := s.now().UTC()
+		a.Responses = append(a.Responses, ApprovalResponse{ApproverID: actorID, Decision: decision, RespondedAt: now})
+		a.UpdatedAt = now
+		if decision == "reject" {
+			a.Outcome = "rejected"
+		} else {
+			approved := 0
+			for _, response := range a.Responses {
+				if response.Decision == "approve" {
+					approved++
+				}
+			}
+			if approved >= a.Quorum {
+				a.Outcome = "approved"
+			}
+		}
+		s.record(workspaceID, actorID, "approval."+decision, approvalID, now)
+		return *a, nil
+	}
+	return Approval{}, ErrNotFound
+}
+
+func (s *Store) Approvals(workspaceID, incidentID string) ([]Approval, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.incidentExists(workspaceID, incidentID) {
+		return nil, ErrNotFound
+	}
+	return append([]Approval(nil), s.approvals[incidentID]...), nil
+}
+
+func specificationHash(spec ActionSpecification) (string, error) {
+	value, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(value)
+	return hex.EncodeToString(sum[:]), nil
+}
+func cloneAction(action Action) Action {
+	encoded, _ := json.Marshal(action.Specification.Parameters)
+	var parameters map[string]any
+	_ = json.Unmarshal(encoded, &parameters)
+	action.Specification.Parameters = parameters
+	return action
+}
+func contains(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+func hasDuplicates(values []string) bool {
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value == "" || seen[value] {
+			return true
+		}
+		seen[value] = true
+	}
+	return false
+}
+func pollHasOption(p Poll, id string) bool {
+	for _, option := range p.Options {
+		if option.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) incidentExists(workspaceID, incidentID string) bool {

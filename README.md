@@ -41,10 +41,11 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
-Phase 3 extends the M1 manual incident path with evidence-linked facts,
-owner-accepted immutable decisions, a verified incident summary, and enforced
-closure gates. Workspace-scoped incidents, ownership and lifecycle transitions,
-typed chronological posts, block replies, and post revisions remain available.
+Phase 4 extends the M1 manual incident path with owned action state machines,
+eligible-voter polls, and quorum approvals bound to immutable action hashes.
+Evidence-linked facts, owner-accepted immutable decisions, verified summaries,
+closure gates, workspace-scoped incidents, typed posts, replies, and revisions
+remain available.
 The current store is in-memory for contract iteration; PostgreSQL durability,
 membership roles, and verified OIDC claims remain production-readiness work.
 

@@ -71,3 +71,43 @@ func TestDecisionHTTPFlow(t *testing.T) {
 		t.Fatalf("accept status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestActionApprovalHTTPFlow(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents", bytes.NewBufferString(`{"title":"Latency","severity":"SEV-2"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	var incident Incident
+	if err := json.NewDecoder(recorder.Body).Decode(&incident); err != nil {
+		t.Fatal(err)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/actions", bytes.NewBufferString(`{"title":"Roll back","ownerId":"bob","kind":"deploy.rollback","parameters":{"version":"v2"}}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("action status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var action Action
+	if err := json.NewDecoder(recorder.Body).Decode(&action); err != nil {
+		t.Fatal(err)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/approvals", bytes.NewBufferString(`{"actionId":"`+action.ID+`","eligibleApproverIds":["carol"],"quorum":1}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("approval status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var approval Approval
+	if err := json.NewDecoder(recorder.Body).Decode(&approval); err != nil {
+		t.Fatal(err)
+	}
+	if approval.SpecificationHash != action.SpecificationHash {
+		t.Fatalf("approval hash %q != action hash %q", approval.SpecificationHash, action.SpecificationHash)
+	}
+}

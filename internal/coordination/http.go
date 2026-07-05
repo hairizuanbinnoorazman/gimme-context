@@ -128,6 +128,89 @@ func Register(mux *http.ServeMux, store *Store) {
 		decision, err := store.Decide(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("decisionID"), actor(r), input.Status)
 		respond(w, http.StatusOK, decision, err)
 	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/actions", func(w http.ResponseWriter, r *http.Request) {
+		items, err := store.Actions(r.PathValue("workspaceID"), r.PathValue("incidentID"))
+		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/actions", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Title                string         `json:"title"`
+			OwnerID              string         `json:"ownerId"`
+			Kind                 string         `json:"kind"`
+			Parameters           map[string]any `json:"parameters"`
+			VerificationCriteria string         `json:"verificationCriteria"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.AddAction(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.Title, input.OwnerID, input.Kind, input.Parameters, input.VerificationCriteria)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("PATCH /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/actions/{actionID}", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Status string `json:"status"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.UpdateAction(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("actionID"), actor(r), input.Status)
+		respond(w, http.StatusOK, item, err)
+	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/polls", func(w http.ResponseWriter, r *http.Request) {
+		items, err := store.Polls(r.PathValue("workspaceID"), r.PathValue("incidentID"))
+		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/polls", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Question         string   `json:"question"`
+			Mode             string   `json:"mode"`
+			Options          []string `json:"options"`
+			EligibleVoterIDs []string `json:"eligibleVoterIds"`
+			Quorum           int      `json:"quorum"`
+			AllowVoteChanges bool     `json:"allowVoteChanges"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.AddPoll(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.Question, input.Mode, input.Options, input.EligibleVoterIDs, input.Quorum, input.AllowVoteChanges)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/polls/{pollID}/votes", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			OptionID string `json:"optionId"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.Vote(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("pollID"), actor(r), input.OptionID)
+		respond(w, http.StatusOK, item, err)
+	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/approvals", func(w http.ResponseWriter, r *http.Request) {
+		items, err := store.Approvals(r.PathValue("workspaceID"), r.PathValue("incidentID"))
+		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/approvals", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			ActionID            string   `json:"actionId"`
+			EligibleApproverIDs []string `json:"eligibleApproverIds"`
+			Quorum              int      `json:"quorum"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.RequestApproval(r.PathValue("workspaceID"), r.PathValue("incidentID"), input.ActionID, actor(r), input.EligibleApproverIDs, input.Quorum)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/approvals/{approvalID}/responses", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Decision string `json:"decision"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.RespondApproval(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("approvalID"), actor(r), input.Decision)
+		respond(w, http.StatusOK, item, err)
+	})
 }
 
 func actor(r *http.Request) string { return r.Header.Get("X-Principal-ID") }
