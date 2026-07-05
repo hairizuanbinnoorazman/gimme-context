@@ -95,6 +95,12 @@ Implemented acceptance surface:
 
 ### M3: AI-assisted synthesis
 
+Status: complete for the M3 functional slice. The Vertex transport boundary,
+agent controls, evidence-linked proposals, review flow, safety boundaries, and
+failure isolation are implemented against the in-memory contract store. Durable
+run execution, workload-identity token acquisition, and encrypted persistence
+remain M0 production-readiness dependencies.
+
 - Vertex AI model gateway and classification rules
 - Agent identity, activation, capability grants, and run records
 - Proposed summaries, facts, decisions, related incidents, and visualisations
@@ -104,6 +110,22 @@ Implemented acceptance surface:
 
 Exit condition: every material AI claim is traceable to visible evidence, and AI
 failure does not block human incident work.
+
+Implemented acceptance surface:
+
+- Vertex AI structured-generation gateway with recorded provider/model and usage
+- Approved agent definitions, owner activation, scoped memberships, and expiring
+  capability grants independent of model output
+- Persistent success/failure run records and explicit termination reasons
+- Proposed summaries, facts, decisions, related incidents, and visualisations,
+  each constrained to evidence visible in its run
+- Human accept/reject controls that promote accepted summaries, facts, and
+  decisions without silently changing source posts
+- Untrusted-evidence delimiters, server-owned system instructions, structured
+  output allowlists, and secret-like output redaction
+- Evidence- and artifact-aware agent collaboration envelopes
+- Acceptance tests for capability denial, injection boundaries, evidence
+  traceability, redaction, review, failure recording, and manual continuity
 
 ### M4: Workflow and controlled autonomy
 

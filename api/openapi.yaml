@@ -601,6 +601,40 @@ paths:
     get:
       operationId: proposeSimilarIncidents
       responses: { "200": { description: Visibility-filtered similar incident proposals } }
+  /api/v1/workspaces/{workspaceID}/agents:
+    get:
+      summary: List approved agent definitions
+      responses: { "200": { description: Agent definitions } }
+    post:
+      summary: Approve an agent definition
+      responses: { "201": { description: Agent approved } }
+  /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/agent-activations:
+    post:
+      summary: Activate an approved agent for an incident
+      responses: { "201": { description: Agent activated }, "403": { description: Incident owner required } }
+  /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/capability-grants:
+    post:
+      summary: Issue a time-bound incident capability to an active agent
+      responses: { "201": { description: Capability granted }, "403": { description: Incident owner required } }
+  /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/agent-runs:
+    get:
+      summary: List agent runs including failures and model usage
+      responses: { "200": { description: Agent runs } }
+    post:
+      summary: Run an activated agent against explicitly identified evidence
+      responses: { "201": { description: Run completed }, "403": { description: Activation, membership, evidence, or capability denied } }
+  /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/ai-proposals:
+    get:
+      summary: List evidence-linked AI proposals
+      responses: { "200": { description: AI proposals } }
+  /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/ai-proposals/{proposalID}:
+    patch:
+      summary: Accept or reject an AI proposal as a human participant
+      responses: { "200": { description: Proposal reviewed }, "409": { description: Proposal already reviewed } }
+  /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/collaboration-envelopes:
+    post:
+      summary: Record a minimal evidence and artifact envelope for agent collaboration
+      responses: { "201": { description: Collaboration envelope recorded } }
 components:
   parameters:
     WorkspaceId:

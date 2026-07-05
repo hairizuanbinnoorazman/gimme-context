@@ -220,28 +220,57 @@ type AuditEvent struct {
 }
 
 type Store struct {
-	mu             sync.RWMutex
-	channels       map[string]PermanentChannel
-	incidents      map[string]Incident
-	posts          map[string][]Post
-	postHistory    map[string][]Post
-	facts          map[string][]Fact
-	decisions      map[string][]Decision
-	actions        map[string][]Action
-	polls          map[string][]Poll
-	approvals      map[string][]Approval
-	templates      map[string][]IncidentTemplate
-	memberships    map[string][]Membership
-	audit          []AuditEvent
-	contextRecipes map[string][]ContextRecipe
-	collections    map[string][]ContextCollection
-	alertIncidents map[string]string
-	contextService ContextService
-	now            func() time.Time
+	mu               sync.RWMutex
+	channels         map[string]PermanentChannel
+	incidents        map[string]Incident
+	posts            map[string][]Post
+	postHistory      map[string][]Post
+	facts            map[string][]Fact
+	decisions        map[string][]Decision
+	actions          map[string][]Action
+	polls            map[string][]Poll
+	approvals        map[string][]Approval
+	templates        map[string][]IncidentTemplate
+	memberships      map[string][]Membership
+	audit            []AuditEvent
+	contextRecipes   map[string][]ContextRecipe
+	collections      map[string][]ContextCollection
+	alertIncidents   map[string]string
+	contextService   ContextService
+	agents           map[string]AgentDefinition
+	activations      map[string][]AgentActivation
+	capabilityGrants map[string][]CapabilityGrant
+	agentRuns        map[string][]AgentRun
+	aiProposals      map[string][]AIProposal
+	collaboration    map[string][]CollaborationEnvelope
+	modelGateway     ModelGateway
+	now              func() time.Time
 }
 
 func NewStore() *Store {
-	return &Store{channels: make(map[string]PermanentChannel), incidents: make(map[string]Incident), posts: make(map[string][]Post), postHistory: make(map[string][]Post), facts: make(map[string][]Fact), decisions: make(map[string][]Decision), actions: make(map[string][]Action), polls: make(map[string][]Poll), approvals: make(map[string][]Approval), templates: make(map[string][]IncidentTemplate), memberships: make(map[string][]Membership), contextRecipes: make(map[string][]ContextRecipe), collections: make(map[string][]ContextCollection), alertIncidents: make(map[string]string), now: time.Now}
+	return &Store{
+		channels:         make(map[string]PermanentChannel),
+		incidents:        make(map[string]Incident),
+		posts:            make(map[string][]Post),
+		postHistory:      make(map[string][]Post),
+		facts:            make(map[string][]Fact),
+		decisions:        make(map[string][]Decision),
+		actions:          make(map[string][]Action),
+		polls:            make(map[string][]Poll),
+		approvals:        make(map[string][]Approval),
+		templates:        make(map[string][]IncidentTemplate),
+		memberships:      make(map[string][]Membership),
+		contextRecipes:   make(map[string][]ContextRecipe),
+		collections:      make(map[string][]ContextCollection),
+		alertIncidents:   make(map[string]string),
+		agents:           make(map[string]AgentDefinition),
+		activations:      make(map[string][]AgentActivation),
+		capabilityGrants: make(map[string][]CapabilityGrant),
+		agentRuns:        make(map[string][]AgentRun),
+		aiProposals:      make(map[string][]AIProposal),
+		collaboration:    make(map[string][]CollaborationEnvelope),
+		now:              time.Now,
+	}
 }
 
 func (s *Store) SetContextService(service ContextService) {
@@ -382,7 +411,12 @@ func (s *Store) CreateTemplateVersion(workspaceID, actorID, templateID, name, de
 		return IncidentTemplate{}, ErrNotFound
 	}
 	now := s.now().UTC()
-	t := IncidentTemplate{ID: templateID, WorkspaceID: workspaceID, Name: name, Version: len(versions) + 1, Description: description, DefaultSeverity: severity, DefaultScope: append([]string(nil), scope...), ClosureChecklist: cloneChecklist(checklist), CreatedBy: actorID, CreatedAt: now}
+	t := IncidentTemplate{
+		ID: templateID, WorkspaceID: workspaceID, Name: name,
+		Version: len(versions) + 1, Description: description,
+		DefaultSeverity: severity, DefaultScope: append([]string(nil), scope...),
+		ClosureChecklist: cloneChecklist(checklist), CreatedBy: actorID, CreatedAt: now,
+	}
 	s.templates[templateID] = append(versions, t)
 	s.record(workspaceID, actorID, "template.version_created", templateID, now)
 	return cloneTemplate(t), nil
@@ -436,7 +470,12 @@ func (s *Store) CreateIncidentFromTemplate(workspaceID, actorID, templateID stri
 	defer s.mu.Unlock()
 	incident = s.incidents[incident.ID]
 	incident.ClosureChecklist = cloneChecklist(t.ClosureChecklist)
-	incident.TemplateSnapshot = &TemplateSnapshot{TemplateID: t.ID, Version: t.Version, Name: t.Name, Description: t.Description, DefaultSeverity: t.DefaultSeverity, DefaultScope: append([]string(nil), t.DefaultScope...), ClosureChecklist: cloneChecklist(t.ClosureChecklist)}
+	incident.TemplateSnapshot = &TemplateSnapshot{
+		TemplateID: t.ID, Version: t.Version, Name: t.Name,
+		Description: t.Description, DefaultSeverity: t.DefaultSeverity,
+		DefaultScope:     append([]string(nil), t.DefaultScope...),
+		ClosureChecklist: cloneChecklist(t.ClosureChecklist),
+	}
 	s.incidents[incident.ID] = incident
 	return cloneIncident(incident), nil
 }
@@ -579,7 +618,12 @@ func (s *Store) CreateIncident(workspaceID, actorID, title, description, severit
 		return Incident{}, ErrInvalid
 	}
 	now := s.now().UTC()
-	incident := Incident{ID: newID(), WorkspaceID: workspaceID, Title: title, Description: strings.TrimSpace(description), OwnerID: actorID, Severity: severity, Lifecycle: "open", Scope: scope, ClosureChecklist: defaultClosureChecklist(), CreatedAt: now, UpdatedAt: now}
+	incident := Incident{
+		ID: newID(), WorkspaceID: workspaceID, Title: title,
+		Description: strings.TrimSpace(description), OwnerID: actorID,
+		Severity: severity, Lifecycle: "open", Scope: scope,
+		ClosureChecklist: defaultClosureChecklist(), CreatedAt: now, UpdatedAt: now,
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.incidents[incident.ID] = incident
@@ -700,7 +744,11 @@ func (s *Store) AddFact(workspaceID, incidentID, actorID, statement string, evid
 		return Fact{}, ErrInvalid
 	}
 	now := s.now().UTC()
-	fact := Fact{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, Statement: statement, State: "unverified", EvidenceBlockIDs: evidence, ProposedBy: actorID, UpdatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	fact := Fact{
+		ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID,
+		Statement: statement, State: "unverified", EvidenceBlockIDs: evidence,
+		ProposedBy: actorID, UpdatedBy: actorID, CreatedAt: now, UpdatedAt: now,
+	}
 	s.facts[incidentID] = append(s.facts[incidentID], fact)
 	s.record(workspaceID, actorID, "fact.proposed", fact.ID, now)
 	return fact, nil
@@ -753,7 +801,12 @@ func (s *Store) AddDecision(workspaceID, incidentID, actorID, statement, rationa
 		return Decision{}, ErrInvalid
 	}
 	now := s.now().UTC()
-	d := Decision{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, Statement: statement, Rationale: strings.TrimSpace(rationale), Status: "proposed", EvidenceBlockIDs: evidence, ProposedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	d := Decision{
+		ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID,
+		Statement: statement, Rationale: strings.TrimSpace(rationale),
+		Status: "proposed", EvidenceBlockIDs: evidence, ProposedBy: actorID,
+		CreatedAt: now, UpdatedAt: now,
+	}
 	s.decisions[incidentID] = append(s.decisions[incidentID], d)
 	s.record(workspaceID, actorID, "decision.proposed", d.ID, now)
 	return d, nil
@@ -826,7 +879,13 @@ func (s *Store) AddAction(workspaceID, incidentID, actorID, title, ownerID, kind
 		return Action{}, ErrInvalid
 	}
 	now := s.now().UTC()
-	action := Action{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, Title: title, OwnerID: ownerID, Status: "proposed", Specification: spec, SpecificationHash: hash, VerificationCriteria: strings.TrimSpace(verification), CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	action := Action{
+		ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID,
+		Title: title, OwnerID: ownerID, Status: "proposed",
+		Specification: spec, SpecificationHash: hash,
+		VerificationCriteria: strings.TrimSpace(verification),
+		CreatedBy:            actorID, CreatedAt: now, UpdatedAt: now,
+	}
 	s.actions[incidentID] = append(s.actions[incidentID], action)
 	s.record(workspaceID, actorID, "action.created", action.ID, now)
 	return cloneAction(action), nil
@@ -901,7 +960,13 @@ func (s *Store) AddPoll(workspaceID, incidentID, actorID, question, mode string,
 		options[i] = PollOption{ID: newID(), Label: strings.TrimSpace(label)}
 	}
 	now := s.now().UTC()
-	poll := Poll{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, Question: question, Mode: mode, Options: options, EligibleVoterIDs: append([]string(nil), eligible...), Quorum: quorum, AllowVoteChanges: allowChanges, Votes: []Vote{}, CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	poll := Poll{
+		ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID,
+		Question: question, Mode: mode, Options: options,
+		EligibleVoterIDs: append([]string(nil), eligible...), Quorum: quorum,
+		AllowVoteChanges: allowChanges, Votes: []Vote{},
+		CreatedBy: actorID, CreatedAt: now, UpdatedAt: now,
+	}
 	s.polls[incidentID] = append(s.polls[incidentID], poll)
 	s.record(workspaceID, actorID, "poll.created", poll.ID, now)
 	return poll, nil
@@ -984,7 +1049,13 @@ func (s *Store) RequestApproval(workspaceID, incidentID, actionID, actorID strin
 		return Approval{}, ErrNotFound
 	}
 	now := s.now().UTC()
-	approval := Approval{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, ActionID: actionID, SpecificationHash: action.SpecificationHash, EligibleApproverIDs: append([]string(nil), eligible...), Quorum: quorum, Responses: []ApprovalResponse{}, Outcome: "pending", CreatedBy: actorID, CreatedAt: now, UpdatedAt: now}
+	approval := Approval{
+		ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID,
+		ActionID: actionID, SpecificationHash: action.SpecificationHash,
+		EligibleApproverIDs: append([]string(nil), eligible...), Quorum: quorum,
+		Responses: []ApprovalResponse{}, Outcome: "pending",
+		CreatedBy: actorID, CreatedAt: now, UpdatedAt: now,
+	}
 	s.approvals[incidentID] = append(s.approvals[incidentID], approval)
 	s.record(workspaceID, actorID, "approval.requested", approval.ID, now)
 	return approval, nil

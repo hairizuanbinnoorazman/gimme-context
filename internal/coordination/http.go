@@ -330,6 +330,7 @@ func Register(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, item, err)
 	})
 	registerContextHTTP(mux, store)
+	registerAgentHTTP(mux, store)
 }
 
 func postHistoryHandler(store *Store) http.HandlerFunc {
@@ -364,7 +365,9 @@ func templateVersionHandler(store *Store, existing bool) http.HandlerFunc {
 	}
 }
 
-func actor(r *http.Request) string { return r.Header.Get("X-Principal-ID") }
+func actor(r *http.Request) string {
+	return r.Header.Get("X-Principal-ID")
+}
 
 func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))

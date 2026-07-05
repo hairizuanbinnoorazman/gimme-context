@@ -41,8 +41,8 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
-M1 human incident coordination and M2 automatic operational context are
-functionally complete. The API-backed Elm
+M1 human incident coordination, M2 automatic operational context, and M3
+AI-assisted synthesis are functionally complete. The API-backed Elm
 interface supports permanent and incident channels, template-based incident
 creation, typed posts and replies, author revisions, roles and ownership,
 structured facts/decisions/actions/polls/approvals, and gated incident closure.
@@ -50,6 +50,11 @@ It also supports versioned context recipes, Alertmanager-created incidents,
 Prometheus/Loki collection posts, visible retrieval failures and refreshes, and
 similar-incident proposals. Backend and frontend tests cover both the manual
 incident path and the alert-to-initial-context path without AI.
+
+The M3 API adds approved Vertex AI agent definitions, incident activation,
+time-bound capabilities, auditable runs, evidence-linked and redacted proposals,
+human accept/reject review, and agent collaboration envelopes. Configure the
+gateway with `VERTEX_AI_ENDPOINT` and a short-lived `VERTEX_AI_ACCESS_TOKEN`.
 
 The current store remains in-memory for contract iteration. PostgreSQL
 durability, workspace administration, comprehensive read authorisation, and

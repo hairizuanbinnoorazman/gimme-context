@@ -21,6 +21,7 @@ func HandlerWithStore(ready func() bool, store *coordination.Store) http.Handler
 		Loki:       coordination.HTTPLokiClient{BaseURL: os.Getenv("LOKI_URL")},
 		Retries:    2,
 	})
+	store.SetModelGateway(coordination.VertexGateway{Endpoint: os.Getenv("VERTEX_AI_ENDPOINT"), Token: os.Getenv("VERTEX_AI_ACCESS_TOKEN")})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", health(http.StatusOK, "live"))
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {

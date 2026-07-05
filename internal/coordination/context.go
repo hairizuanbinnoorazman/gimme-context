@@ -244,9 +244,31 @@ func (s *Store) IncidentForAlert(workspaceID, ownerID string, payload AlertWebho
 			scope = append(scope, v)
 		}
 	}
-	incident := Incident{ID: newID(), WorkspaceID: workspaceID, Title: title, Description: alert.Annotations["description"], OwnerID: ownerID, Severity: severity, Lifecycle: "open", Scope: scope, ClosureChecklist: defaultClosureChecklist(), CreatedAt: now, UpdatedAt: now}
+	incident := Incident{
+		ID:               newID(),
+		WorkspaceID:      workspaceID,
+		Title:            title,
+		Description:      alert.Annotations["description"],
+		OwnerID:          ownerID,
+		Severity:         severity,
+		Lifecycle:        "open",
+		Scope:            scope,
+		ClosureChecklist: defaultClosureChecklist(),
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
 	s.incidents[incident.ID] = incident
-	s.memberships[incident.ID] = []Membership{{WorkspaceID: workspaceID, IncidentID: incident.ID, PrincipalID: ownerID, Role: "owner", Source: "alert_rule", Status: "active", AddedBy: "alertmanager", CreatedAt: now, UpdatedAt: now}}
+	s.memberships[incident.ID] = []Membership{{
+		WorkspaceID: workspaceID,
+		IncidentID:  incident.ID,
+		PrincipalID: ownerID,
+		Role:        "owner",
+		Source:      "alert_rule",
+		Status:      "active",
+		AddedBy:     "alertmanager",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}}
 	s.alertIncidents[key] = incident.ID
 	s.record(workspaceID, "alertmanager", "incident.created_from_alert", incident.ID, now)
 	return AlertResult{Incident: cloneIncident(incident), Created: true, DedupKey: key}, nil
@@ -313,7 +335,20 @@ func (svc ContextService) Collect(ctx context.Context, store *Store, workspaceID
 			c.Failures = append(c.Failures, failure(q, classifyRetrievalError(err), err, svc.Retries))
 			continue
 		}
-		c.Snapshots = append(c.Snapshots, ContextSnapshot{ID: newID(), Source: q.Source, Query: rendered, Start: start, End: end, RetrievedAt: store.now().UTC(), Freshness: "current", Complete: true, SourceURL: url, Transformations: []string{}, RetrievedBy: actorID, Data: data})
+		c.Snapshots = append(c.Snapshots, ContextSnapshot{
+			ID:              newID(),
+			Source:          q.Source,
+			Query:           rendered,
+			Start:           start,
+			End:             end,
+			RetrievedAt:     store.now().UTC(),
+			Freshness:       "current",
+			Complete:        true,
+			SourceURL:       url,
+			Transformations: []string{},
+			RetrievedBy:     actorID,
+			Data:            data,
+		})
 	}
 	c.CompletedAt = store.now().UTC()
 	c.Status = "complete"
@@ -326,7 +361,9 @@ func (svc ContextService) Collect(ctx context.Context, store *Store, workspaceID
 	return store.saveCollection(c)
 }
 
-func errorsNew(message string) error { return fmt.Errorf("%s", message) }
+func errorsNew(message string) error {
+	return fmt.Errorf("%s", message)
+}
 func classifyRetrievalError(err error) string {
 	if err == context.DeadlineExceeded || err == context.Canceled {
 		return "timeout"

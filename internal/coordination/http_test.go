@@ -180,7 +180,9 @@ func TestActionApprovalHTTPFlow(t *testing.T) {
 	addMemberHTTP(t, mux, incident.ID, "bob", "participant")
 	addMemberHTTP(t, mux, incident.ID, "carol", "participant")
 
-	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/actions", bytes.NewBufferString(`{"title":"Roll back","ownerId":"bob","kind":"deploy.rollback","parameters":{"version":"v2"}}`))
+	actionURL := "/api/v1/workspaces/acme/incidents/" + incident.ID + "/actions"
+	actionBody := `{"title":"Roll back","ownerId":"bob","kind":"deploy.rollback","parameters":{"version":"v2"}}`
+	request = httptest.NewRequest(http.MethodPost, actionURL, bytes.NewBufferString(actionBody))
 	request.Header.Set("X-Principal-ID", "alice")
 	recorder = httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)

@@ -14,10 +14,10 @@ port apiResponse : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
-    { workspace : String, actor : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe
+    { workspace : String, actor : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe, agents : List Agent
     , active : Active, posts : List Post, draft : String, blockType : String, replyTo : Maybe Post, editing : Maybe Post
     , createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
-    , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, busy : Bool, error : Maybe String
+    , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, busy : Bool, error : Maybe String
     }
 
 type Active = None | IncidentActive Incident | ChannelActive Channel
@@ -45,21 +45,24 @@ type alias ContextCollection = { id : String, status : String, snapshots : List 
 type alias ContextSnapshot = { source : String, query : String, retrievedAt : String }
 type alias RetrievalFailure = { source : String, category : String, message : String, requiredHumanAction : String }
 type alias SimilarIncident = { incident : Incident, score : Int }
+type alias Agent = { id : String, name : String, purpose : String, model : String }
+type alias AgentRun = { id : String, status : String, task : String, terminationReason : String }
+type alias AIProposal = { id : String, kind : String, content : String, status : String, evidenceBlockIds : List String, redacted : Bool }
 
 type Msg
     = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String | SetBlockType String
     | Publish | SetReply Post | EditPost Post | CancelReply | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateChannel
     | AdvanceLifecycle | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
     | SetActor String | SetMember String | SetMemberRole String | AddMember | TransferOwnership | SetStructured String | SetStructuredType String | AddStructured
-    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | DismissError | Reload
+    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | DismissError | Reload
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { workspace = "acme", actor = "alice", incidents = [], channels = [], templates = [], recipes = [], active = None, posts = []
+    ( { workspace = "acme", actor = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
       , draft = "", blockType = "markdown", replyTo = Nothing, editing = Nothing, createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
-      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], busy = True, error = Nothing }
-    , Cmd.batch [ get "incidents" "/api/v1/workspaces/acme/incidents", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes" ]
+      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], busy = True, error = Nothing }
+    , Cmd.batch [ get "incidents" "/api/v1/workspaces/acme/incidents", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents" ]
     )
 
 
@@ -67,7 +70,7 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         GotApi raw -> handleResponse raw model
-        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, collections = [], similar = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ get "posts" (incidentPath model incident.id ++ "/posts"), get "coordination" (incidentPath model incident.id ++ "/coordination"), get "collections" (incidentPath model incident.id ++ "/context-collections"), getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor ] )
+        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, collections = [], similar = [], agentRuns = [], aiProposals = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ get "posts" (incidentPath model incident.id ++ "/posts"), get "coordination" (incidentPath model incident.id ++ "/coordination"), get "collections" (incidentPath model incident.id ++ "/context-collections"), getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, get "agentRuns" (incidentPath model incident.id ++ "/agent-runs"), get "aiProposals" (incidentPath model incident.id ++ "/ai-proposals") ] )
         SelectChannel channel -> ( { model | active = ChannelActive channel, posts = [], error = Nothing }, get "posts" (channelPath model channel.id ++ "/posts") )
         SetDraft v -> ( { model | draft = v }, Cmd.none )
         SetBlockType v -> ( { model | blockType = v }, Cmd.none )
@@ -88,6 +91,11 @@ update msg model =
         SetStructured v -> ( { model | structuredDraft = v }, Cmd.none )
         SetStructuredType v -> ( { model | structuredType = v }, Cmd.none )
         SetRecipe v -> ( { model | recipeId = v }, Cmd.none )
+        SetAgent v -> ( { model | agentId = v }, Cmd.none )
+        SetAgentTask v -> ( { model | agentTask = v }, Cmd.none )
+        ActivateAgent -> incidentCommand model "POST" "/agent-activations" (Encode.object [ ( "agentId", Encode.string model.agentId ) ])
+        RunAgent -> incidentCommand model "POST" "/agent-runs" (Encode.object [ ( "agentId", Encode.string model.agentId ), ( "task", Encode.string model.agentTask ), ( "classification", Encode.string "internal" ), ( "evidenceBlockIds", Encode.list Encode.string (List.concatMap (\post -> List.map .id post.blocks) model.posts) ), ( "requiredCapabilities", Encode.list Encode.string [] ) ])
+        ReviewProposal proposal status -> incidentCommand model "PATCH" ("/ai-proposals/" ++ proposal.id) (Encode.object [ ( "status", Encode.string status ) ])
         CollectContext -> incidentCommand model "POST" "/context-collections" (Encode.object [ ( "recipeId", Encode.string model.recipeId ), ( "labels", Encode.object [] ) ])
         RefreshContext collection -> incidentCommand model "POST" ("/context-collections/" ++ collection.id ++ "/refresh") (Encode.object [ ( "labels", Encode.object [] ) ])
         DismissError -> ( { model | error = Nothing }, Cmd.none )
@@ -199,6 +207,15 @@ handleResponse raw model =
                 "recipes" -> case Decode.decodeValue (Decode.field "items" (Decode.list contextRecipeDecoder)) response.body of
                     Ok items -> ( { model | recipes = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
+                "agents" -> case Decode.decodeValue (Decode.field "items" (Decode.list agentDecoder)) response.body of
+                    Ok items -> ( { model | agents = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
+                "agentRuns" -> case Decode.decodeValue (Decode.field "items" (Decode.list agentRunDecoder)) response.body of
+                    Ok items -> ( { model | agentRuns = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
+                "aiProposals" -> case Decode.decodeValue (Decode.field "items" (Decode.list aiProposalDecoder)) response.body of
+                    Ok items -> ( { model | aiProposals = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
                 "collections" -> case Decode.decodeValue (Decode.field "items" (Decode.list contextCollectionDecoder)) response.body of
                     Ok items -> ( { model | collections = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
@@ -215,7 +232,7 @@ handleResponse raw model =
                     Ok incident -> ( replaceIncident incident { model | active = IncidentActive incident, summaryDraft = incident.verifiedSummary, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
                 "post" -> ( { model | busy = False }, refreshPosts model )
-                _ -> ( { model | createTitle = "", memberDraft = "", busy = False }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshCoordination model, refreshCollections model ] )
+                _ -> ( { model | createTitle = "", memberDraft = "", busy = False }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshCoordination model, refreshCollections model, refreshAgents model ] )
 
 
 replaceIncident : Incident -> Model -> Model
@@ -303,8 +320,23 @@ incidentState model incident =
         , h2 [] [ text "Participants and ownership" ], input [ value model.memberDraft, onInput SetMember, placeholder "Principal ID", attribute "aria-label" "New participant" ] [], select [ value model.memberRole, onChange SetMemberRole, attribute "aria-label" "Participant role" ] (List.map (choice model.memberRole) [ "participant", "editor", "viewer" ]), button [ onClick AddMember, disabled model.busy ] [ text "Add participant" ], button [ onClick TransferOwnership, disabled model.busy ] [ text "Transfer ownership" ]
         , h2 [] [ text "Structured coordination" ], select [ value model.structuredType, onChange SetStructuredType, attribute "aria-label" "Coordination type" ] (List.map (choice model.structuredType) [ "fact", "decision", "action", "poll" ]), textarea [ value model.structuredDraft, onInput SetStructured, placeholder "Statement, task, or question" ] [], button [ onClick AddStructured, disabled model.busy ] [ text "Add" ]
         , contextPanel model
+        , agentPanel model
         , coordinationView model
         ]
+
+agentPanel model =
+    div [ class "agent-panel" ]
+        [ h2 [] [ text "AI-assisted synthesis" ]
+        , select [ value model.agentId, onChange SetAgent, attribute "aria-label" "Incident agent" ] (option [ value "" ] [ text "Select approved agent" ] :: List.map (\a -> option [ value a.id ] [ text (a.name ++ " · " ++ a.model) ]) model.agents)
+        , button [ onClick ActivateAgent, disabled (model.busy || model.agentId == "") ] [ text "Activate agent" ]
+        , textarea [ value model.agentTask, onInput SetAgentTask, placeholder "Synthesis task using visible feed evidence", attribute "aria-label" "Agent task" ] []
+        , button [ onClick RunAgent, disabled (model.busy || model.agentId == "" || String.trim model.agentTask == "" || List.isEmpty model.posts) ] [ text "Run synthesis" ]
+        , div [] (List.map (\run -> p [ class ("agent-run run-" ++ run.status) ] [ text (run.task ++ " · " ++ run.status ++ (if run.terminationReason == "" then "" else " · " ++ run.terminationReason)) ]) model.agentRuns)
+        , div [] (List.map viewAIProposal model.aiProposals)
+        ]
+
+viewAIProposal proposal =
+    coordinationItem ("AI " ++ proposal.kind) proposal.content (proposal.status ++ " · " ++ String.fromInt (List.length proposal.evidenceBlockIds) ++ " evidence links" ++ (if proposal.redacted then " · redacted" else "")) (if proposal.status == "proposed" then [ button [ onClick (ReviewProposal proposal "accepted") ] [ text "Accept AI proposal" ], button [ onClick (ReviewProposal proposal "rejected") ] [ text "Reject AI proposal" ] ] else [])
 
 contextPanel model =
     div [ class "context-panel" ]
@@ -379,6 +411,10 @@ refreshCollections model =
     case model.active of
         IncidentActive i -> get "collections" (incidentPath model i.id ++ "/context-collections")
         _ -> Cmd.none
+refreshAgents model =
+    case model.active of
+        IncidentActive i -> Cmd.batch [ get "agentRuns" (incidentPath model i.id ++ "/agent-runs"), get "aiProposals" (incidentPath model i.id ++ "/ai-proposals") ]
+        _ -> Cmd.none
 
 responseDecoder = Decode.map4 Response (Decode.field "tag" Decode.string) (Decode.field "ok" Decode.bool) (Decode.field "status" Decode.int) (Decode.field "body" Decode.value)
 incidentDecoder = Decode.map8 Incident (Decode.field "id" Decode.string) (Decode.field "title" Decode.string) (Decode.field "ownerId" Decode.string) (Decode.field "severity" Decode.string) (Decode.field "lifecycle" Decode.string) (Decode.field "scope" (Decode.list Decode.string)) (Decode.oneOf [ Decode.field "verifiedSummary" Decode.string, Decode.succeed "" ]) (Decode.field "closureChecklist" (Decode.list checklistDecoder))
@@ -399,6 +435,9 @@ contextCollectionDecoder = Decode.map4 ContextCollection (Decode.field "id" Deco
 contextSnapshotDecoder = Decode.map3 ContextSnapshot (Decode.field "source" Decode.string) (Decode.field "query" Decode.string) (Decode.field "retrievedAt" Decode.string)
 retrievalFailureDecoder = Decode.map4 RetrievalFailure (Decode.field "source" Decode.string) (Decode.field "category" Decode.string) (Decode.field "message" Decode.string) (Decode.field "requiredHumanAction" Decode.string)
 similarIncidentDecoder = Decode.map2 SimilarIncident (Decode.field "incident" incidentDecoder) (Decode.field "score" Decode.int)
+agentDecoder = Decode.map4 Agent (Decode.field "id" Decode.string) (Decode.field "name" Decode.string) (Decode.field "purpose" Decode.string) (Decode.field "model" Decode.string)
+agentRunDecoder = Decode.map4 AgentRun (Decode.field "id" Decode.string) (Decode.field "status" Decode.string) (Decode.field "task" Decode.string) (Decode.oneOf [ Decode.field "terminationReason" Decode.string, Decode.succeed "" ])
+aiProposalDecoder = Decode.map6 AIProposal (Decode.field "id" Decode.string) (Decode.field "kind" Decode.string) (Decode.field "content" Decode.string) (Decode.field "status" Decode.string) (Decode.field "evidenceBlockIds" (Decode.list Decode.string)) (Decode.field "redacted" Decode.bool)
 
 subscriptions _ = apiResponse GotApi
 main = Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }

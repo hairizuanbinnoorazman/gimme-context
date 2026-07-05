@@ -27,13 +27,30 @@ func TestAlertCreatesIncidentCollectsContextAndDeduplicates(t *testing.T) {
 	prom := &stubTelemetry{data: map[string]any{"result": "metrics"}}
 	loki := &stubTelemetry{data: map[string]any{"result": "logs"}}
 	store.SetContextService(ContextService{Prometheus: prom, Loki: loki, Retries: 1})
-	recipe, err := store.CreateContextRecipe("acme", "alice", "", "Initial context", []ContextQuery{{Name: "errors", Source: "prometheus", Query: `rate(http_errors_total{service="{{.service}}"}[5m])`, Lookback: "30m"}, {Name: "logs", Source: "loki", Query: `{service="{{.service}}"} |= "error"`, Limit: 100}})
+	queries := []ContextQuery{
+		{Name: "errors", Source: "prometheus", Query: `rate(http_errors_total{service="{{.service}}"}[5m])`, Lookback: "30m"},
+		{Name: "logs", Source: "loki", Query: `{service="{{.service}}"} |= "error"`, Limit: 100},
+	}
+	recipe, err := store.CreateContextRecipe("acme", "alice", "", "Initial context", queries)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
 	Register(mux, store)
-	body := map[string]any{"ownerId": "alice", "recipeId": recipe.ID, "commonLabels": map[string]string{"service": "checkout"}, "alerts": []map[string]any{{"fingerprint": "alert-1", "labels": map[string]string{"alertname": "HighErrors", "severity": "critical", "service": "checkout"}, "annotations": map[string]string{"summary": "Checkout errors"}}}}
+	body := map[string]any{
+		"ownerId":      "alice",
+		"recipeId":     recipe.ID,
+		"commonLabels": map[string]string{"service": "checkout"},
+		"alerts": []map[string]any{{
+			"fingerprint": "alert-1",
+			"labels": map[string]string{
+				"alertname": "HighErrors",
+				"severity":  "critical",
+				"service":   "checkout",
+			},
+			"annotations": map[string]string{"summary": "Checkout errors"},
+		}},
+	}
 	raw, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/integrations/alertmanager/webhook", bytes.NewReader(raw))
 	rec := httptest.NewRecorder()
