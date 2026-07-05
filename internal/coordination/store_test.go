@@ -75,9 +75,50 @@ func TestMembershipAndOwnershipTransfer(t *testing.T) {
 	}
 }
 
+func TestIncidentRolesAuthorizeMutationsAndRevocationTakesEffect(t *testing.T) {
+	store := NewStore()
+	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "ed", "editor")
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "pat", "participant")
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "vic", "viewer")
+
+	if _, err := store.AddPost("workspace-a", incident.ID, "outsider", "", "", []Block{{Type: "markdown", Payload: map[string]any{"text": "no"}}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("outsider post error = %v, want forbidden", err)
+	}
+	if _, err := store.AddPost("workspace-a", incident.ID, "vic", "", "", []Block{{Type: "markdown", Payload: map[string]any{"text": "no"}}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("viewer post error = %v, want forbidden", err)
+	}
+	if _, err := store.AddDecision("workspace-a", incident.ID, "pat", "Investigate cache", "", nil); err != nil {
+		t.Fatalf("participant proposal error = %v", err)
+	}
+	fact, err := store.AddFact("workspace-a", incident.ID, "pat", "Cache misses increased", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UpdateFact("workspace-a", incident.ID, fact.ID, "pat", "corroborated"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("participant structured edit error = %v, want forbidden", err)
+	}
+	if _, err = store.UpdateFact("workspace-a", incident.ID, fact.ID, "ed", "corroborated"); err != nil {
+		t.Fatalf("editor structured edit error = %v", err)
+	}
+	if _, err = store.UpdateResolution("workspace-a", incident.ID, "ed", "Investigation in progress", "", nil); err != nil {
+		t.Fatalf("editor summary update error = %v", err)
+	}
+	if _, err = store.TransferOwnership("workspace-a", incident.ID, "ed", "pat"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("editor ownership transfer error = %v, want forbidden", err)
+	}
+	if _, err = store.UpdateMembership("workspace-a", incident.ID, "alice", "pat", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddDecision("workspace-a", incident.ID, "pat", "Retry", "", nil); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("revoked participant error = %v, want forbidden", err)
+	}
+}
+
 func TestPostsRepliesAndRevisions(t *testing.T) {
 	store := NewStore()
 	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "bob", "participant")
 	post, err := store.AddPost("workspace-a", incident.ID, "alice", "", "", []Block{{Type: "fact", Payload: map[string]any{"text": "errors started at 10:00"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -121,6 +162,7 @@ func TestRejectsUnknownBlockType(t *testing.T) {
 func TestFactsRequireValidEvidenceAndOwnerControlsState(t *testing.T) {
 	store := NewStore()
 	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "bob", "participant")
 	post, _ := store.AddPost("workspace-a", incident.ID, "bob", "", "", []Block{{Type: "log", Payload: map[string]any{"text": "timeout"}}})
 	if _, err := store.AddFact("workspace-a", incident.ID, "bob", "timeouts increased", []string{"missing"}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("missing evidence error = %v, want invalid", err)
@@ -141,6 +183,7 @@ func TestFactsRequireValidEvidenceAndOwnerControlsState(t *testing.T) {
 func TestAcceptedDecisionIsImmutable(t *testing.T) {
 	store := NewStore()
 	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "bob", "participant")
 	decision, err := store.AddDecision("workspace-a", incident.ID, "bob", "roll back", "errors followed deploy", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +220,7 @@ func TestResolutionRequiresSummaryAndCompletedChecklist(t *testing.T) {
 func TestActionLifecycleAndOwnership(t *testing.T) {
 	store := NewStore()
 	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "bob", "participant")
 	action, err := store.AddAction("workspace-a", incident.ID, "alice", "Roll back", "bob", "deploy.rollback", map[string]any{"service": "checkout", "version": "v2"}, "Error rate recovers")
 	if err != nil || len(action.SpecificationHash) != 64 {
 		t.Fatalf("action = %+v, err = %v", action, err)
@@ -203,6 +247,7 @@ func TestActionLifecycleAndOwnership(t *testing.T) {
 func TestPollEligibilityAndVoteChangePolicy(t *testing.T) {
 	store := NewStore()
 	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	_, _ = store.AddMembership("workspace-a", incident.ID, "alice", "bob", "participant")
 	poll, err := store.AddPoll("workspace-a", incident.ID, "alice", "Roll back?", "advisory", []string{"Yes", "No"}, []string{"alice", "bob"}, 2, false)
 	if err != nil {
 		t.Fatal(err)
@@ -222,6 +267,9 @@ func TestPollEligibilityAndVoteChangePolicy(t *testing.T) {
 func TestApprovalBindsActionSpecificationAndRejectsReplay(t *testing.T) {
 	store := NewStore()
 	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
+	for _, principalID := range []string{"bob", "carol", "dave"} {
+		_, _ = store.AddMembership("workspace-a", incident.ID, "alice", principalID, "participant")
+	}
 	action, _ := store.AddAction("workspace-a", incident.ID, "alice", "Roll back", "bob", "deploy.rollback", map[string]any{"version": "v2"}, "")
 	approval, err := store.RequestApproval("workspace-a", incident.ID, action.ID, "alice", []string{"carol", "dave"}, 2)
 	if err != nil || approval.SpecificationHash != action.SpecificationHash {

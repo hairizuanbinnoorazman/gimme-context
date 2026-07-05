@@ -415,6 +415,29 @@ func validMemberRole(role string) bool {
 	return role == "owner" || role == "editor" || role == "participant" || role == "viewer"
 }
 
+// activeRole is called while the store lock is held. Membership is the
+// authorization boundary for incident mutations; revoked entries never grant
+// access even when an older entry exists for the same principal.
+func (s *Store) activeRole(incidentID, principalID string) (string, bool) {
+	for i := len(s.memberships[incidentID]) - 1; i >= 0; i-- {
+		member := s.memberships[incidentID][i]
+		if member.PrincipalID == principalID && member.Status == "active" {
+			return member.Role, true
+		}
+	}
+	return "", false
+}
+
+func (s *Store) canParticipate(incidentID, principalID string) bool {
+	role, ok := s.activeRole(incidentID, principalID)
+	return ok && role != "viewer"
+}
+
+func (s *Store) canEdit(incidentID, principalID string) bool {
+	role, ok := s.activeRole(incidentID, principalID)
+	return ok && (role == "owner" || role == "editor")
+}
+
 func (s *Store) CreateIncident(workspaceID, actorID, title, description, severity string, scope []string) (Incident, error) {
 	title = strings.TrimSpace(title)
 	if workspaceID == "" || actorID == "" || title == "" || !validSeverity[severity] {
@@ -497,7 +520,7 @@ func (s *Store) UpdateResolution(workspaceID, incidentID, actorID, summary, chec
 	if !ok || incident.WorkspaceID != workspaceID {
 		return Incident{}, ErrNotFound
 	}
-	if actorID != incident.OwnerID {
+	if !s.canEdit(incidentID, actorID) {
 		return Incident{}, ErrForbidden
 	}
 	if summary != "" {
@@ -534,6 +557,9 @@ func (s *Store) AddFact(workspaceID, incidentID, actorID, statement string, evid
 	if !s.incidentExists(workspaceID, incidentID) {
 		return Fact{}, ErrNotFound
 	}
+	if !s.canParticipate(incidentID, actorID) {
+		return Fact{}, ErrForbidden
+	}
 	statement = strings.TrimSpace(statement)
 	if actorID == "" || statement == "" || !s.evidenceExists(incidentID, evidence) {
 		return Fact{}, ErrInvalid
@@ -552,7 +578,7 @@ func (s *Store) UpdateFact(workspaceID, incidentID, factID, actorID, state strin
 	if !ok || incident.WorkspaceID != workspaceID {
 		return Fact{}, ErrNotFound
 	}
-	if actorID != incident.OwnerID {
+	if !s.canEdit(incidentID, actorID) {
 		return Fact{}, ErrForbidden
 	}
 	valid := map[string]bool{"unverified": true, "corroborated": true, "disputed": true, "superseded": true, "invalidated": true}
@@ -584,6 +610,9 @@ func (s *Store) AddDecision(workspaceID, incidentID, actorID, statement, rationa
 	if !s.incidentExists(workspaceID, incidentID) {
 		return Decision{}, ErrNotFound
 	}
+	if !s.canParticipate(incidentID, actorID) {
+		return Decision{}, ErrForbidden
+	}
 	statement = strings.TrimSpace(statement)
 	if actorID == "" || statement == "" || !s.evidenceExists(incidentID, evidence) {
 		return Decision{}, ErrInvalid
@@ -602,7 +631,7 @@ func (s *Store) Decide(workspaceID, incidentID, decisionID, actorID, status stri
 	if !ok || incident.WorkspaceID != workspaceID {
 		return Decision{}, ErrNotFound
 	}
-	if actorID != incident.OwnerID {
+	if !s.canEdit(incidentID, actorID) {
 		return Decision{}, ErrForbidden
 	}
 	if status != "accepted" && status != "rejected" {
@@ -638,8 +667,14 @@ func (s *Store) AddAction(workspaceID, incidentID, actorID, title, ownerID, kind
 	if !s.incidentExists(workspaceID, incidentID) {
 		return Action{}, ErrNotFound
 	}
+	if !s.canEdit(incidentID, actorID) {
+		return Action{}, ErrForbidden
+	}
 	title, ownerID, kind = strings.TrimSpace(title), strings.TrimSpace(ownerID), strings.TrimSpace(kind)
 	if actorID == "" || title == "" || ownerID == "" || kind == "" || parameters == nil {
+		return Action{}, ErrInvalid
+	}
+	if !s.canParticipate(incidentID, ownerID) {
 		return Action{}, ErrInvalid
 	}
 	encodedParameters, err := json.Marshal(parameters)
@@ -674,7 +709,7 @@ func (s *Store) UpdateAction(workspaceID, incidentID, actionID, actorID, status 
 		if a.ID != actionID {
 			continue
 		}
-		if actorID != a.OwnerID && actorID != incident.OwnerID {
+		if !s.canParticipate(incidentID, actorID) || (actorID != a.OwnerID && !s.canEdit(incidentID, actorID)) {
 			return Action{}, ErrForbidden
 		}
 		allowed := map[string]map[string]bool{
@@ -711,9 +746,17 @@ func (s *Store) AddPoll(workspaceID, incidentID, actorID, question, mode string,
 	if !s.incidentExists(workspaceID, incidentID) {
 		return Poll{}, ErrNotFound
 	}
+	if !s.canEdit(incidentID, actorID) {
+		return Poll{}, ErrForbidden
+	}
 	question = strings.TrimSpace(question)
 	if actorID == "" || question == "" || (mode != "advisory" && mode != "binding") || len(labels) < 2 || len(eligible) == 0 || quorum < 1 || quorum > len(eligible) || hasDuplicates(eligible) {
 		return Poll{}, ErrInvalid
+	}
+	for _, voterID := range eligible {
+		if !s.canParticipate(incidentID, voterID) {
+			return Poll{}, ErrInvalid
+		}
 	}
 	options := make([]PollOption, len(labels))
 	for i, label := range labels {
@@ -734,6 +777,9 @@ func (s *Store) Vote(workspaceID, incidentID, pollID, actorID, optionID string) 
 	defer s.mu.Unlock()
 	if !s.incidentExists(workspaceID, incidentID) {
 		return Poll{}, ErrNotFound
+	}
+	if !s.canParticipate(incidentID, actorID) {
+		return Poll{}, ErrForbidden
 	}
 	for i := range s.polls[incidentID] {
 		p := &s.polls[incidentID][i]
@@ -781,8 +827,16 @@ func (s *Store) RequestApproval(workspaceID, incidentID, actionID, actorID strin
 	if !s.incidentExists(workspaceID, incidentID) {
 		return Approval{}, ErrNotFound
 	}
+	if !s.canEdit(incidentID, actorID) {
+		return Approval{}, ErrForbidden
+	}
 	if actorID == "" || len(eligible) == 0 || quorum < 1 || quorum > len(eligible) || hasDuplicates(eligible) {
 		return Approval{}, ErrInvalid
+	}
+	for _, approverID := range eligible {
+		if !s.canParticipate(incidentID, approverID) {
+			return Approval{}, ErrInvalid
+		}
 	}
 	var action *Action
 	for i := range s.actions[incidentID] {
@@ -806,6 +860,9 @@ func (s *Store) RespondApproval(workspaceID, incidentID, approvalID, actorID, de
 	defer s.mu.Unlock()
 	if !s.incidentExists(workspaceID, incidentID) {
 		return Approval{}, ErrNotFound
+	}
+	if !s.canParticipate(incidentID, actorID) {
+		return Approval{}, ErrForbidden
 	}
 	if decision != "approve" && decision != "reject" {
 		return Approval{}, ErrInvalid
@@ -974,6 +1031,9 @@ func (s *Store) AddPost(workspaceID, incidentID, actorID, replyPostID, replyBloc
 	if !ok || incident.WorkspaceID != workspaceID {
 		return Post{}, ErrNotFound
 	}
+	if !s.canParticipate(incidentID, actorID) {
+		return Post{}, ErrForbidden
+	}
 	if actorID == "" || len(blocks) == 0 || !validateBlocks(blocks) {
 		return Post{}, ErrInvalid
 	}
@@ -1009,6 +1069,9 @@ func (s *Store) revisePost(workspaceID, incidentID, postID, actorID string, bloc
 	incident, ok := s.incidents[incidentID]
 	if !ok || incident.WorkspaceID != workspaceID {
 		return Post{}, ErrNotFound
+	}
+	if !s.canParticipate(incidentID, actorID) {
+		return Post{}, ErrForbidden
 	}
 	if !validateBlocks(blocks) {
 		return Post{}, ErrInvalid

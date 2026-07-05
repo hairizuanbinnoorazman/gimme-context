@@ -198,6 +198,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Post" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
   /workspaces/{workspaceId}/incidents/{incidentId}/members:
     parameters:
@@ -323,6 +324,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Fact" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /workspaces/{workspaceId}/incidents/{incidentId}/facts/{factId}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
@@ -342,10 +344,11 @@ paths:
                 state: { $ref: "#/components/schemas/FactState" }
       responses:
         "200":
-          description: Fact state updated by the incident owner
+          description: Fact state updated by an incident editor or owner
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Fact" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /workspaces/{workspaceId}/incidents/{incidentId}/decisions:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
@@ -375,6 +378,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Decision" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /workspaces/{workspaceId}/incidents/{incidentId}/decisions/{decisionId}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
@@ -394,10 +398,11 @@ paths:
                 status: { type: string, enum: [accepted, rejected] }
       responses:
         "200":
-          description: Proposed decision accepted or rejected by the incident owner
+          description: Proposed decision accepted or rejected by an incident editor or owner
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Decision" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
   /workspaces/{workspaceId}/incidents/{incidentId}/actions:
     parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
@@ -413,6 +418,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateAction" } } } }
       responses:
         "201": { description: Owned action created, content: { application/json: { schema: { $ref: "#/components/schemas/Action" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /workspaces/{workspaceId}/incidents/{incidentId}/actions/{actionId}:
     parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: actionId, in: path, required: true, schema: { type: string } }]
     patch:
@@ -421,6 +427,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status], properties: { status: { $ref: "#/components/schemas/ActionStatus" } } } } } }
       responses:
         "200": { description: Action status updated, content: { application/json: { schema: { $ref: "#/components/schemas/Action" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
   /workspaces/{workspaceId}/incidents/{incidentId}/polls:
     parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
@@ -434,6 +441,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreatePoll" } } } }
       responses:
         "201": { description: Poll created, content: { application/json: { schema: { $ref: "#/components/schemas/Poll" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /workspaces/{workspaceId}/incidents/{incidentId}/polls/{pollId}/votes:
     parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: pollId, in: path, required: true, schema: { type: string } }]
     post:
@@ -442,6 +450,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [optionId], properties: { optionId: { type: string } } } } } }
       responses:
         "200": { description: Vote recorded, content: { application/json: { schema: { $ref: "#/components/schemas/Poll" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
   /workspaces/{workspaceId}/incidents/{incidentId}/approvals:
     parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
@@ -455,6 +464,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RequestApproval" } } } }
       responses:
         "201": { description: Approval bound to the current action specification, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /workspaces/{workspaceId}/incidents/{incidentId}/approvals/{approvalId}/responses:
     parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }, { name: approvalId, in: path, required: true, schema: { type: string } }]
     post:
@@ -463,6 +473,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [approve, reject] } } } } } }
       responses:
         "200": { description: Approval response recorded, content: { application/json: { schema: { $ref: "#/components/schemas/Approval" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
 components:
   parameters:

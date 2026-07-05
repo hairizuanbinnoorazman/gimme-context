@@ -50,6 +50,7 @@ func TestDecisionHTTPFlow(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&incident); err != nil {
 		t.Fatal(err)
 	}
+	addMemberHTTP(t, mux, incident.ID, "bob", "participant")
 
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/decisions", bytes.NewBufferString(`{"statement":"roll back","rationale":"latency followed deployment"}`))
 	request.Header.Set("X-Principal-ID", "bob")
@@ -114,6 +115,8 @@ func TestActionApprovalHTTPFlow(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&incident); err != nil {
 		t.Fatal(err)
 	}
+	addMemberHTTP(t, mux, incident.ID, "bob", "participant")
+	addMemberHTTP(t, mux, incident.ID, "carol", "participant")
 
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/actions", bytes.NewBufferString(`{"title":"Roll back","ownerId":"bob","kind":"deploy.rollback","parameters":{"version":"v2"}}`))
 	request.Header.Set("X-Principal-ID", "alice")
@@ -140,5 +143,16 @@ func TestActionApprovalHTTPFlow(t *testing.T) {
 	}
 	if approval.SpecificationHash != action.SpecificationHash {
 		t.Fatalf("approval hash %q != action hash %q", approval.SpecificationHash, action.SpecificationHash)
+	}
+}
+
+func addMemberHTTP(t *testing.T, mux *http.ServeMux, incidentID, principalID, role string) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents/"+incidentID+"/members", bytes.NewBufferString(`{"principalId":"`+principalID+`","role":"`+role+`"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("add member %s status = %d, body = %s", principalID, recorder.Code, recorder.Body.String())
 	}
 }
