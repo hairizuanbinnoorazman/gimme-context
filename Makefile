@@ -1,4 +1,4 @@
-.PHONY: build test fmt web-build clean minikube-deploy minikube-smoke
+.PHONY: build test fmt web-build clean compose-up compose-down minikube-deploy minikube-smoke
 
 build:
 	mkdir -p bin
@@ -17,6 +17,12 @@ web-build:
 
 clean:
 	rm -rf bin web/dist
+
+compose-up:
+	docker compose up --build --wait
+
+compose-down:
+	docker compose down --remove-orphans
 
 minikube-deploy:
 	./scripts/minikube-deploy.sh

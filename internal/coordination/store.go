@@ -508,7 +508,7 @@ func (s *Store) Memberships(workspaceID, incidentID string) ([]Membership, error
 	if !s.incidentExists(workspaceID, incidentID) {
 		return nil, ErrNotFound
 	}
-	return append([]Membership(nil), s.memberships[incidentID]...), nil
+	return append([]Membership{}, s.memberships[incidentID]...), nil
 }
 
 func (s *Store) AddMembership(workspaceID, incidentID, actorID, principalID, role string) (Membership, error) {
@@ -819,7 +819,7 @@ func (s *Store) Facts(workspaceID, incidentID string) ([]Fact, error) {
 	if !s.incidentExists(workspaceID, incidentID) {
 		return nil, ErrNotFound
 	}
-	return append([]Fact(nil), s.facts[incidentID]...), nil
+	return append([]Fact{}, s.facts[incidentID]...), nil
 }
 
 func (s *Store) AddDecision(workspaceID, incidentID, actorID, statement, rationale string, evidence []string) (Decision, error) {
@@ -881,7 +881,7 @@ func (s *Store) Decisions(workspaceID, incidentID string) ([]Decision, error) {
 	if !s.incidentExists(workspaceID, incidentID) {
 		return nil, ErrNotFound
 	}
-	return append([]Decision(nil), s.decisions[incidentID]...), nil
+	return append([]Decision{}, s.decisions[incidentID]...), nil
 }
 
 func (s *Store) AddAction(workspaceID, incidentID, actorID, title, ownerID, kind string, parameters map[string]any, verification string) (Action, error) {
@@ -1053,7 +1053,7 @@ func (s *Store) Polls(workspaceID, incidentID string) ([]Poll, error) {
 	if !s.incidentExists(workspaceID, incidentID) {
 		return nil, ErrNotFound
 	}
-	return append([]Poll(nil), s.polls[incidentID]...), nil
+	return append([]Poll{}, s.polls[incidentID]...), nil
 }
 
 func (s *Store) RequestApproval(workspaceID, incidentID, actionID, actorID string, eligible []string, quorum int) (Approval, error) {
@@ -1152,7 +1152,7 @@ func (s *Store) Approvals(workspaceID, incidentID string) ([]Approval, error) {
 	if !s.incidentExists(workspaceID, incidentID) {
 		return nil, ErrNotFound
 	}
-	return append([]Approval(nil), s.approvals[incidentID]...), nil
+	return append([]Approval{}, s.approvals[incidentID]...), nil
 }
 
 func specificationHash(spec ActionSpecification) (string, error) {
@@ -1246,7 +1246,7 @@ func validChecklist(items []ChecklistItem) bool {
 	return true
 }
 func cloneChecklist(items []ChecklistItem) []ChecklistItem {
-	return append([]ChecklistItem(nil), items...)
+	return append([]ChecklistItem{}, items...)
 }
 func cloneTemplate(t IncidentTemplate) IncidentTemplate {
 	t.DefaultScope = append([]string(nil), t.DefaultScope...)
@@ -1254,7 +1254,10 @@ func cloneTemplate(t IncidentTemplate) IncidentTemplate {
 	return t
 }
 func cloneIncident(incident Incident) Incident {
-	incident.Scope = append([]string(nil), incident.Scope...)
+	// API collection fields must remain JSON arrays even when callers omit them.
+	// A nil slice serializes as null, which breaks clients expecting a stable
+	// list-shaped contract.
+	incident.Scope = append([]string{}, incident.Scope...)
 	incident.ClosureChecklist = cloneChecklist(incident.ClosureChecklist)
 	if incident.TemplateSnapshot != nil {
 		snapshot := *incident.TemplateSnapshot

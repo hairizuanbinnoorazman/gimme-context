@@ -305,7 +305,7 @@ func (s *Store) WorkflowRuns(workspaceID, incidentID string) ([]WorkflowRun, err
 	if inc, ok := s.incidents[incidentID]; !ok || inc.WorkspaceID != workspaceID {
 		return nil, ErrNotFound
 	}
-	return append([]WorkflowRun(nil), s.workflowRuns[incidentID]...), nil
+	return append([]WorkflowRun{}, s.workflowRuns[incidentID]...), nil
 }
 
 func (s *Store) WorkflowProjection(workspaceID, incidentID, runID string) (WorkflowProjection, error) {

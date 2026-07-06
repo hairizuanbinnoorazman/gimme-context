@@ -37,6 +37,18 @@ Run the API with `go run ./cmd/api`; it listens on port 8080 by default and
 exposes `/health/live`, `/health/ready`, and `/api/v1`. Run the asynchronous
 worker separately with `go run ./cmd/worker`.
 
+For a complete local stack, Docker Compose builds and starts the API, worker,
+and web proxy. The UI is available at <http://localhost:8080>.
+
+```sh
+make compose-up
+make compose-down
+```
+
+Set `APP_PORT` to use another host port, for example
+`APP_PORT=18080 make compose-up`. Application data is held in API memory and is
+discarded when the API container is replaced.
+
 The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.

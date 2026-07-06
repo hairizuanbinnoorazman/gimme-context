@@ -397,7 +397,7 @@ func (s *Store) ContextCollections(workspaceID, incidentID string) ([]ContextCol
 	if !s.incidentExists(workspaceID, incidentID) {
 		return nil, ErrNotFound
 	}
-	return append([]ContextCollection(nil), s.collections[incidentID]...), nil
+	return append([]ContextCollection{}, s.collections[incidentID]...), nil
 }
 func (s *Store) ContextCollection(workspaceID, incidentID, id string) (ContextCollection, error) {
 	items, err := s.ContextCollections(workspaceID, incidentID)

@@ -344,7 +344,7 @@ func (s *Store) AgentRuns(workspaceID, incidentID string) ([]AgentRun, error) {
 	if in, ok := s.incidents[incidentID]; !ok || in.WorkspaceID != workspaceID {
 		return nil, ErrNotFound
 	}
-	return append([]AgentRun(nil), s.agentRuns[incidentID]...), nil
+	return append([]AgentRun{}, s.agentRuns[incidentID]...), nil
 }
 func (s *Store) AIProposals(workspaceID, incidentID string) ([]AIProposal, error) {
 	s.mu.RLock()
@@ -352,7 +352,7 @@ func (s *Store) AIProposals(workspaceID, incidentID string) ([]AIProposal, error
 	if in, ok := s.incidents[incidentID]; !ok || in.WorkspaceID != workspaceID {
 		return nil, ErrNotFound
 	}
-	return append([]AIProposal(nil), s.aiProposals[incidentID]...), nil
+	return append([]AIProposal{}, s.aiProposals[incidentID]...), nil
 }
 func (s *Store) ReviewAIProposal(workspaceID, incidentID, proposalID, actorID, status string) (AIProposal, error) {
 	s.mu.Lock()

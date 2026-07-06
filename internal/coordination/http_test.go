@@ -39,6 +39,53 @@ func TestIncidentHTTPFlow(t *testing.T) {
 	}
 }
 
+func TestIncidentHTTPSerializesOmittedScopeAsArray(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents", bytes.NewBufferString(`{"title":"No scope","severity":"unclassified"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["scope"]) != "[]" {
+		t.Fatalf("scope = %s, want []", body["scope"])
+	}
+}
+
+func TestEmptyCoordinationHTTPSerializesCollectionsAsArrays(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewStore())
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/acme/incidents", bytes.NewBufferString(`{"title":"Empty coordination","severity":"unclassified"}`))
+	request.Header.Set("X-Principal-ID", "alice")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	var incident Incident
+	if err := json.NewDecoder(recorder.Body).Decode(&incident); err != nil {
+		t.Fatal(err)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/coordination", nil)
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"facts", "decisions", "actions", "polls", "approvals"} {
+		if string(body[field]) != "[]" {
+			t.Errorf("%s = %s, want []", field, body[field])
+		}
+	}
+}
+
 func TestManualIncidentCanRunAndCloseOverHTTP(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewStore())
