@@ -8,6 +8,7 @@ channels.
 ## Documentation
 
 - [Product requirements](docs/product-requirements.md)
+- [Platform use cases](docs/use-cases.md)
 - [Domain model](docs/domain-model.md)
 - [Technical architecture](docs/technical-architecture.md)
 - [MVP delivery plan](docs/mvp-delivery-plan.md)
