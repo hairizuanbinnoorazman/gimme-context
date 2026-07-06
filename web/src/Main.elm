@@ -1,7 +1,7 @@
 port module Main exposing (main)
 
 import Browser
-import Html exposing (Html, aside, button, div, h1, h2, header, input, label, li, main_, option, p, section, select, span, text, textarea, ul)
+import Html exposing (Html, aside, button, div, h1, h2, h3, header, input, label, li, main_, option, p, section, select, span, text, textarea, ul)
 import Html.Attributes exposing (attribute, checked, class, disabled, placeholder, selected, type_, value)
 import Html.Events exposing (on, onCheck, onClick, onInput)
 import Json.Decode as Decode
@@ -16,8 +16,9 @@ port apiResponse : (Decode.Value -> msg) -> Sub msg
 type alias Model =
     { workspace : String, actor : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe, agents : List Agent
     , active : Active, posts : List Post, draft : String, blockType : String, replyTo : Maybe Post, editing : Maybe Post
-    , createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
+    , createKind : String, createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
     , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, investigations : List Investigation, busy : Bool, error : Maybe String
+    , adminOpen : Bool, adminAgentName : String, adminAgentPurpose : String, adminAgentModel : String, adminTemplateName : String, adminTemplateScope : String, auditEvents : List AuditEvent
     }
 
 type Active = None | IncidentActive Incident | ChannelActive Channel
@@ -54,20 +55,23 @@ type alias WorkflowStepState = { stepId : String, name : String, mode : String, 
 type alias Investigation = { id : String, status : String, repository : String, readOnly : Bool, branch : String, evidence : List InvestigationEvidence, pullRequest : Maybe PullRequest }
 type alias InvestigationEvidence = { kind : String, summary : String, sha256 : String }
 type alias PullRequest = { number : Int, url : String }
+type alias AuditEvent = { actorId : String, action : String, subjectId : String, occurredAt : String }
 
 type Msg
     = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String | SetBlockType String
-    | Publish | SetReply Post | EditPost Post | CancelReply | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateChannel
+    | Publish | SetReply Post | EditPost Post | CancelReply | SetCreateKind String | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateChannel
     | AdvanceLifecycle | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
     | SetActor String | SetMember String | SetMemberRole String | AddMember | TransferOwnership | SetStructured String | SetStructuredType String | AddStructured
     | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | SetWorkflow String | StartWorkflow | SetWorkflowView String | WorkflowCommand WorkflowRun String String | StartInvestigation | DestroyInvestigation Investigation | DismissError | Reload
+    | OpenAdmin | CloseAdmin | SetAdminAgentName String | SetAdminAgentPurpose String | SetAdminAgentModel String | CreateAdminAgent | SetAdminTemplateName String | SetAdminTemplateScope String | CreateAdminTemplate | LoadAudit
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( { workspace = "acme", actor = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
-      , draft = "", blockType = "markdown", replyTo = Nothing, editing = Nothing, createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
-      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", investigations = [], busy = True, error = Nothing }
+      , draft = "", blockType = "markdown", replyTo = Nothing, editing = Nothing, createKind = "incident", createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
+      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", investigations = [], busy = True, error = Nothing
+      , adminOpen = False, adminAgentName = "", adminAgentPurpose = "", adminAgentModel = "codex-session", adminTemplateName = "", adminTemplateScope = "", auditEvents = [] }
     , Cmd.batch [ get "incidents" "/api/v1/workspaces/acme/incidents", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents", get "workflowDefinitions" "/api/v1/workspaces/acme/workflow-definitions" ]
     )
 
@@ -86,6 +90,7 @@ update msg model =
                 first :: _ -> ( { model | editing = Just post, replyTo = Nothing, draft = first.body, blockType = first.kind }, Cmd.none )
                 [] -> ( model, Cmd.none )
         CancelReply -> ( { model | replyTo = Nothing, editing = Nothing, draft = "" }, Cmd.none )
+        SetCreateKind v -> ( { model | createKind = v, createTitle = "" }, Cmd.none )
         SetCreateTitle v -> ( { model | createTitle = v }, Cmd.none )
         SetCreateSeverity v -> ( { model | createSeverity = v }, Cmd.none )
         SetCreateScope v -> ( { model | createScope = v }, Cmd.none )
@@ -99,6 +104,20 @@ update msg model =
         SetRecipe v -> ( { model | recipeId = v }, Cmd.none )
         SetAgent v -> ( { model | agentId = v }, Cmd.none )
         SetAgentTask v -> ( { model | agentTask = v }, Cmd.none )
+        OpenAdmin -> ( { model | adminOpen = True, active = None, error = Nothing }, Cmd.batch [ get "agents" (workspacePath model ++ "/agents"), get "templates" (workspacePath model ++ "/incident-templates"), get "audit" (workspacePath model ++ "/audit-export") ] )
+        CloseAdmin -> ( { model | adminOpen = False }, Cmd.none )
+        SetAdminAgentName v -> ( { model | adminAgentName = v }, Cmd.none )
+        SetAdminAgentPurpose v -> ( { model | adminAgentPurpose = v }, Cmd.none )
+        SetAdminAgentModel v -> ( { model | adminAgentModel = v }, Cmd.none )
+        CreateAdminAgent ->
+            if String.trim model.adminAgentName == "" || String.trim model.adminAgentPurpose == "" then ( model, Cmd.none )
+            else command model "adminAgent" "POST" (workspacePath model ++ "/agents") (Encode.object [ ( "name", Encode.string model.adminAgentName ), ( "purpose", Encode.string model.adminAgentPurpose ), ( "provider", Encode.string "vertex-ai" ), ( "model", Encode.string model.adminAgentModel ), ( "capabilities", Encode.list Encode.string [ "synthesis" ] ) ])
+        SetAdminTemplateName v -> ( { model | adminTemplateName = v }, Cmd.none )
+        SetAdminTemplateScope v -> ( { model | adminTemplateScope = v }, Cmd.none )
+        CreateAdminTemplate ->
+            if String.trim model.adminTemplateName == "" then ( model, Cmd.none )
+            else command model "adminTemplate" "POST" (workspacePath model ++ "/incident-templates") (Encode.object [ ( "name", Encode.string model.adminTemplateName ), ( "description", Encode.string "Created in workspace administration" ), ( "defaultSeverity", Encode.string "unclassified" ), ( "defaultScope", Encode.list Encode.string (splitScope model.adminTemplateScope) ), ( "closureChecklist", Encode.list identity [ Encode.object [ ( "id", Encode.string "summary" ), ( "label", Encode.string "Verified summary completed" ), ( "completed", Encode.bool False ) ] ] ) ])
+        LoadAudit -> ( { model | busy = True }, get "audit" (workspacePath model ++ "/audit-export") )
         ActivateAgent -> incidentCommand model "POST" "/agent-activations" (Encode.object [ ( "agentId", Encode.string model.agentId ) ])
         RunAgent -> incidentCommand model "POST" "/agent-runs" (Encode.object [ ( "agentId", Encode.string model.agentId ), ( "task", Encode.string model.agentTask ), ( "classification", Encode.string "internal" ), ( "evidenceBlockIds", Encode.list Encode.string (List.concatMap (\post -> List.map .id post.blocks) model.posts) ), ( "requiredCapabilities", Encode.list Encode.string [] ) ])
         ReviewProposal proposal status -> incidentCommand model "PATCH" ("/ai-proposals/" ++ proposal.id) (Encode.object [ ( "status", Encode.string status ) ])
@@ -222,6 +241,11 @@ handleResponse raw model =
                 "agents" -> case Decode.decodeValue (Decode.field "items" (Decode.list agentDecoder)) response.body of
                     Ok items -> ( { model | agents = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
+                "audit" -> case Decode.decodeValue (Decode.field "items" (Decode.list auditEventDecoder)) response.body of
+                    Ok items -> ( { model | auditEvents = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
+                "adminAgent" -> ( { model | adminAgentName = "", adminAgentPurpose = "", busy = False }, get "agents" (workspacePath model ++ "/agents") )
+                "adminTemplate" -> ( { model | adminTemplateName = "", adminTemplateScope = "", busy = False }, get "templates" (workspacePath model ++ "/incident-templates") )
                 "agentRuns" -> case Decode.decodeValue (Decode.field "items" (Decode.list agentRunDecoder)) response.body of
                     Ok items -> ( { model | agentRuns = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
@@ -273,20 +297,81 @@ view model =
 
             Nothing ->
                 text ""
-        , div [ class "workspace" ] [ navigation model, main_ [ class "incident" ] [ content model ] ]
+        , div [ class "workspace" ] [ navigation model, main_ [ class "incident" ] [ if model.adminOpen then administration model else content model ] ]
         ]
 
 
 navigation model =
     aside [ class "channel-nav", attribute "aria-label" "Channels" ]
-        [ p [ class "eyebrow" ] [ text "INCIDENTS" ], ul [] (List.map (incidentNav model) model.incidents)
+        [ button [ class ("admin-nav" ++ (if model.adminOpen then " selected-channel" else "")), onClick OpenAdmin ] [ text "Workspace administration" ]
+        , p [ class "eyebrow" ] [ text "INCIDENTS" ], ul [] (List.map (incidentNav model) model.incidents)
         , p [ class "eyebrow" ] [ text "PERMANENT" ], ul [] (List.map (channelNav model) model.channels)
-        , label [] [ text "New channel title", input [ value model.createTitle, placeholder "Checkout incident", onInput SetCreateTitle ] [] ]
-        , label [] [ text "Incident severity", select [ value model.createSeverity, onChange SetCreateSeverity ] (List.map (choice model.createSeverity) [ "unclassified", "SEV-1", "SEV-2", "SEV-3", "SEV-4" ]) ]
-        , label [] [ text "Incident scope", input [ value model.createScope, placeholder "checkout, production", onInput SetCreateScope ] [] ]
-        , label [] [ text "Incident template", select [ value model.templateId, onChange SetTemplate ] (option [ value "" ] [ text "Workspace defaults" ] :: List.map (templateChoice model.templateId) model.templates) ]
-        , div [ class "nav-actions" ] [ button [ onClick CreateIncident, disabled model.busy ] [ text "New incident" ], button [ onClick CreateChannel, disabled model.busy ] [ text "New permanent" ] ]
+        , div [ class "create-switch", attribute "aria-label" "Channel type" ]
+            [ button [ class (if model.createKind == "incident" then "selected" else ""), onClick (SetCreateKind "incident"), attribute "aria-pressed" (if model.createKind == "incident" then "true" else "false") ] [ text "Incident" ]
+            , button [ class (if model.createKind == "permanent" then "selected" else ""), onClick (SetCreateKind "permanent"), attribute "aria-pressed" (if model.createKind == "permanent" then "true" else "false") ] [ text "Permanent" ]
+            ]
+        , label [] [ text (if model.createKind == "incident" then "Incident title" else "Permanent channel title"), input [ value model.createTitle, placeholder (if model.createKind == "incident" then "Checkout incident" else "Checkout operations"), onInput SetCreateTitle ] [] ]
+        , if model.createKind == "incident" then div [ class "incident-create-fields" ]
+            [ label [] [ text "Incident severity", select [ value model.createSeverity, onChange SetCreateSeverity ] (List.map (choice model.createSeverity) [ "unclassified", "SEV-1", "SEV-2", "SEV-3", "SEV-4" ]) ]
+            , label [] [ text "Incident scope", input [ value model.createScope, placeholder "checkout, production", onInput SetCreateScope ] [] ]
+            , label [] [ text "Incident template", select [ value model.templateId, onChange SetTemplate ] (option [ value "" ] [ text "Workspace defaults" ] :: List.map (templateChoice model.templateId) model.templates) ]
+            ] else p [ class "create-help" ] [ text "Long-lived discussion and reusable operational knowledge, without an incident lifecycle." ]
+        , button [ class "primary-action create-action", onClick (if model.createKind == "incident" then CreateIncident else CreateChannel), disabled (model.busy || String.trim model.createTitle == "") ] [ text (if model.createKind == "incident" then "Create incident" else "Create permanent channel") ]
         ]
+
+administration model =
+    div [ class "admin-page" ]
+        [ pageHeader "Workspace administration" "Configuration, governance, and audit" (Just (button [ onClick CloseAdmin ] [ text "Back to channels" ]))
+        , div [ class "admin-layout" ]
+            [ section [ class "admin-intro" ]
+                [ h2 [] [ text "acme workspace" ]
+                , p [] [ text "Local in-memory workspace · data resets when the API container is replaced." ]
+                , div [ class "notice notice-warning" ] [ Html.strong [] [ text "Development identity" ], p [] [ text "Acting as uses an unverified X-Principal-ID header. OIDC, re-authentication, and workspace-level authorization are not enforced in this build." ] ]
+                ]
+            , adminStatusGrid
+            , section [ class "admin-card admin-wide" ]
+                [ div [ class "card-heading" ] [ div [] [ h3 [] [ text "Approved agents" ], p [] [ text "Define an agent before an incident owner activates it." ] ], statusPill "Available" "available" ]
+                , div [ class "admin-form" ]
+                    [ label [] [ text "Name", input [ value model.adminAgentName, onInput SetAdminAgentName, placeholder "Incident synthesizer" ] [] ]
+                    , label [] [ text "Purpose", input [ value model.adminAgentPurpose, onInput SetAdminAgentPurpose, placeholder "Summarize visible incident evidence" ] [] ]
+                    , label [] [ text "Model / adapter", input [ value model.adminAgentModel, onInput SetAdminAgentModel ] [] ]
+                    , button [ class "primary-action", onClick CreateAdminAgent, disabled (model.busy || String.trim model.adminAgentName == "" || String.trim model.adminAgentPurpose == "") ] [ text "Approve agent" ]
+                    ]
+                , p [ class "field-help" ] [ text "For local evaluation, use codex-session as the model label. Execution remains evidence-scoped and will report a visible failure unless a model gateway is configured." ]
+                , div [ class "record-list" ] (List.map (\agent -> div [ class "record-row" ] [ div [] [ Html.strong [] [ text agent.name ], p [] [ text agent.purpose ] ], span [] [ text agent.model ] ]) model.agents)
+                ]
+            , section [ class "admin-card admin-wide" ]
+                [ div [ class "card-heading" ] [ div [] [ h3 [] [ text "Incident templates" ], p [] [ text "New incidents snapshot the selected immutable template version." ] ], statusPill "Available" "available" ]
+                , div [ class "admin-form" ]
+                    [ label [] [ text "Template name", input [ value model.adminTemplateName, onInput SetAdminTemplateName, placeholder "Production service incident" ] [] ]
+                    , label [] [ text "Default scope", input [ value model.adminTemplateScope, onInput SetAdminTemplateScope, placeholder "checkout, production" ] [] ]
+                    , button [ class "primary-action", onClick CreateAdminTemplate, disabled (model.busy || String.trim model.adminTemplateName == "") ] [ text "Publish version 1" ]
+                    ]
+                , div [ class "record-list" ] (List.map (\item -> div [ class "record-row" ] [ Html.strong [] [ text item.name ], span [] [ text ("Version " ++ String.fromInt item.version) ] ]) model.templates)
+                ]
+            , section [ class "admin-card admin-wide" ]
+                [ div [ class "card-heading" ] [ div [] [ h3 [] [ text "Audit history" ], p [] [ text "Workspace-scoped append-only activity from this in-memory session." ] ], button [ onClick LoadAudit, disabled model.busy ] [ text "Refresh events" ] ]
+                , if List.isEmpty model.auditEvents then p [ class "empty-copy" ] [ text "No audit events yet. Creating an agent or template will add one." ] else div [ class "audit-table" ] (List.map viewAuditEvent model.auditEvents)
+                ]
+            ]
+        ]
+
+adminStatusGrid =
+    section [ class "status-grid", attribute "aria-label" "Administration capability status" ]
+        [ statusCard "Workspace boundary" "Region, data policy, and platform limits require durable workspace storage." "Not implemented"
+        , statusCard "Members and roles" "Incident membership exists; workspace-wide membership and immediate read revocation do not." "Not implemented"
+        , statusCard "Identity and re-auth" "OIDC claim mapping and fresh authentication are not connected." "Development only"
+        , statusCard "Integrations" "Prometheus, Loki, Alertmanager, and GitHub contracts exist but credential registration is environment-managed." "Partial"
+        , statusCard "Risk and autonomy" "Workflow risk rules are enforced; workspace and channel policy editors are not available." "Partial"
+        ]
+
+statusCard title_ description status =
+    div [ class "admin-card status-card" ] [ div [ class "card-heading" ] [ h3 [] [ text title_ ], statusPill status "pending" ], p [] [ text description ] ]
+
+statusPill label_ kind = span [ class ("status-pill status-" ++ kind) ] [ text label_ ]
+
+viewAuditEvent event =
+    div [ class "audit-row" ] [ span [ class "audit-time" ] [ text event.occurredAt ], Html.strong [] [ text event.action ], span [] [ text event.actorId ], span [] [ text event.subjectId ] ]
 
 incidentNav model incident = li [ class (if activeId model.active == incident.id then "selected-channel" else "") ] [ button [ onClick (SelectIncident incident) ] [ text (incident.severity ++ " " ++ incident.title) ] ]
 channelNav model channel = li [ class (if activeId model.active == channel.id then "selected-channel" else "") ] [ button [ onClick (SelectChannel channel) ] [ text channel.title ] ]
@@ -330,7 +415,7 @@ composer model =
                     Nothing ->
                         text ""
         , label [] [ text "Add to the channel" ], textarea [ placeholder "Share an update…", value model.draft, onInput SetDraft ] []
-        , div [ class "composer-actions" ] [ select [ value model.blockType, onChange SetBlockType, attribute "aria-label" "Block type" ] (List.map (choice model.blockType) [ "markdown", "code", "log", "table", "checklist", "fact", "decision", "action", "poll", "approval", "status" ]), button [ class "primary-action", onClick Publish, disabled model.busy ] [ text "Post update" ] ]
+        , div [ class "composer-actions" ] [ select [ value model.blockType, onChange SetBlockType, attribute "aria-label" "Block type" ] (List.map (choice model.blockType) [ "markdown", "code", "log", "table", "checklist", "fact", "decision", "action", "poll", "approval", "status" ]), button [ class "primary-action", onClick Publish, disabled (model.busy || String.trim model.draft == "") ] [ text (if model.editing == Nothing then "Post update" else "Save revision") ] ]
         ]
 
 incidentState model incident =
@@ -370,7 +455,7 @@ workflowPanel model =
     div [ class "workflow-panel" ]
         [ h2 [] [ text "Workflow and controlled autonomy" ]
         , select [ value model.workflowId, onChange SetWorkflow, attribute "aria-label" "Workflow definition" ] (option [ value "" ] [ text "Select published workflow" ] :: List.map (\d -> option [ value d.id ] [ text (d.name ++ " v" ++ String.fromInt d.version) ]) model.workflowDefinitions)
-        , button [ onClick StartWorkflow, disabled (model.busy || model.workflowId == "") ] [ text "Start workflow" ]
+        , button [ class "primary-action", onClick StartWorkflow, disabled (model.busy || model.workflowId == "") ] [ text "Start workflow" ]
         , select [ value model.workflowView, onChange SetWorkflowView, attribute "aria-label" "Workflow projection" ] (List.map (choice model.workflowView) [ "checklist", "flow" ])
         , div [] (List.map (viewWorkflowRun model.workflowView) model.workflowRuns)
         ]
@@ -379,16 +464,18 @@ viewWorkflowRun projection run =
     div [ class ("workflow-run workflow-" ++ projection) ]
         ([ p [] [ text ("Run v" ++ String.fromInt run.definitionVersion ++ " · " ++ run.status) ] ]
             ++ List.map (viewWorkflowStep run) run.steps
-            ++ [ button [ onClick (WorkflowCommand run (if run.status == "paused" then "resume" else "pause") ""), disabled (run.status == "completed" || run.status == "cancelled") ] [ text (if run.status == "paused" then "Resume" else "Pause") ]
-               , button [ onClick (WorkflowCommand run "stop" ""), disabled (run.status == "completed" || run.status == "cancelled") ] [ text "Stop workflow" ]
+            ++ [ div [ class "workflow-actions" ]
+                    [ button [ class "secondary-action", onClick (WorkflowCommand run (if run.status == "paused" then "resume" else "pause") ""), disabled (run.status == "completed" || run.status == "cancelled") ] [ text (if run.status == "paused" then "Resume workflow" else "Pause workflow") ]
+                    , button [ class "danger-action", onClick (WorkflowCommand run "stop" ""), disabled (run.status == "completed" || run.status == "cancelled") ] [ text "Stop workflow" ]
+                    ]
                ]
         )
 
 viewWorkflowStep run step =
     div [ class ("workflow-step step-" ++ step.status) ]
         [ span [ class "block-kind" ] [ text step.name ], span [] [ text (step.mode ++ " · " ++ step.risk ++ " · " ++ step.status) ]
-        , if step.status == "pending" then button [ onClick (WorkflowCommand run "start-step" step.stepId) ] [ text "Start" ] else text ""
-        , if step.status == "in-progress" || step.status == "countdown" then button [ onClick (WorkflowCommand run "complete-step" step.stepId) ] [ text "Complete" ] else text ""
+        , if step.status == "pending" then button [ class "primary-action compact-action", onClick (WorkflowCommand run "start-step" step.stepId) ] [ text "Start step" ] else text ""
+        , if step.status == "in-progress" || step.status == "countdown" then button [ class "primary-action compact-action", onClick (WorkflowCommand run "complete-step" step.stepId) ] [ text "Complete step" ] else text ""
         , if step.mode == "autonomous" && (step.status == "in-progress" || step.status == "countdown") then button [ onClick (WorkflowCommand run "stop-autonomy" step.stepId) ] [ text "Stop autonomy" ] else text ""
         , if step.status == "stopped" then button [ onClick (WorkflowCommand run "restart-autonomy" step.stepId) ] [ text "Authorised restart" ] else text ""
         , if step.status == "failed" then button [ onClick (WorkflowCommand run "retry-step" step.stepId) ] [ text "Retry" ] else text ""
@@ -522,6 +609,7 @@ workflowStepStateDecoder = Decode.map6 WorkflowStepState (Decode.field "stepId" 
 investigationDecoder = Decode.map7 Investigation (Decode.field "id" Decode.string) (Decode.field "status" Decode.string) (Decode.field "repository" Decode.string) (Decode.field "readOnly" Decode.bool) (Decode.oneOf [ Decode.field "branch" Decode.string, Decode.succeed "" ]) (Decode.field "evidence" (Decode.list investigationEvidenceDecoder)) (Decode.maybe (Decode.field "pullRequest" pullRequestDecoder))
 investigationEvidenceDecoder = Decode.map3 InvestigationEvidence (Decode.field "kind" Decode.string) (Decode.field "summary" Decode.string) (Decode.field "sha256" Decode.string)
 pullRequestDecoder = Decode.map2 PullRequest (Decode.field "number" Decode.int) (Decode.field "url" Decode.string)
+auditEventDecoder = Decode.map4 AuditEvent (Decode.field "actorId" Decode.string) (Decode.field "action" Decode.string) (Decode.field "targetId" Decode.string) (Decode.field "at" Decode.string)
 
 subscriptions _ = apiResponse GotApi
 main = Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }

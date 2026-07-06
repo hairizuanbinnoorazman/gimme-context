@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Gimme Context" })).toBeVisible();
   await expect(page.locator(".top-bar")).toHaveCSS("background-color", "rgb(21, 61, 111)");
   await expect(page.locator(".workspace")).toHaveCSS("display", "grid");
-  await expect(page.getByRole("button", { name: "New incident" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Create incident" })).toBeDisabled();
 });
 
 test.afterEach(async ({ page }) => {
@@ -22,10 +22,10 @@ test.afterEach(async ({ page }) => {
 
 test("a human creates an incident and posts an investigation update", async ({ page }) => {
   const title = `Checkout latency ${Date.now()}`;
-  await page.getByLabel("New channel title").fill(title);
+  await page.getByLabel("Incident title").fill(title);
   await page.getByLabel("Incident severity").selectOption("SEV-2");
   await page.getByLabel("Incident scope").fill("checkout, production");
-  await page.getByRole("button", { name: "New incident" }).click();
+  await page.getByRole("button", { name: "Create incident" }).click();
 
   const incident = page.getByRole("button", { name: `SEV-2 ${title}` });
   await expect(incident).toBeVisible();
@@ -41,8 +41,8 @@ test("a human creates an incident and posts an investigation update", async ({ p
 
 test("operators record and accept a decision", async ({ page }) => {
   const title = `Payments decision ${Date.now()}`;
-  await page.getByLabel("New channel title").fill(title);
-  await page.getByRole("button", { name: "New incident" }).click();
+  await page.getByLabel("Incident title").fill(title);
+  await page.getByRole("button", { name: "Create incident" }).click();
   await page.getByRole("button", { name: `unclassified ${title}` }).click();
 
   await page.getByLabel("Coordination type").selectOption("decision");
