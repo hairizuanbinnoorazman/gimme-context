@@ -7,7 +7,7 @@ const css = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
 const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
 test("trusted controls have accessible names and use live API state", () => {
-  for (const label of ["Current principal", "Block type", "New participant", "Coordination type", "Chronological feed"]) assert.match(main, new RegExp(label));
+  for (const label of ["Development principal", "Block type", "New participant", "Coordination type", "Chronological feed"]) assert.match(main, new RegExp(label));
   assert.match(main, /port apiRequest/);
   assert.match(html, /fetch\(request\.url/);
 });

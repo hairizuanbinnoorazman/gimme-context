@@ -19,4 +19,12 @@ test("a permanent channel has a distinct creation flow and responds to posts", a
   await page.getByRole("button", { name: "Post update" }).click();
   await expect(page.getByText("Checkout rollback steps are documented here.")).toBeVisible();
   await expect(page.getByPlaceholder("Share an update…")).toHaveValue("");
+
+  const parent = page.locator("article.post", { hasText: "Checkout rollback steps are documented here." });
+  await parent.getByRole("button", { name: "Reply to post" }).click();
+  await expect(page.getByText("Replying to post by alice")).toBeVisible();
+  await page.getByPlaceholder("Share an update…").fill("The rollback owner has reviewed these steps.");
+  await page.getByRole("button", { name: "Post update" }).click();
+  await expect(page.locator("article.post-reply", { hasText: "The rollback owner has reviewed these steps." }))
+    .toContainText("Reply to alice: Checkout rollback steps are documented here.");
 });

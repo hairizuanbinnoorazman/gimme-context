@@ -90,6 +90,9 @@ func registerContextHTTP(mux *http.ServeMux, store *Store) {
 	})
 
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/context-collections", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.ContextCollections(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
@@ -99,7 +102,22 @@ func registerContextHTTP(mux *http.ServeMux, store *Store) {
 		items := store.SearchIncidents(r.PathValue("workspaceID"), actor(r), r.URL.Query().Get("q"), r.URL.Query().Get("exclude"))
 		writeJSON(w, http.StatusOK, map[string]any{"items": items})
 	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/knowledge-search", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"items": store.SearchKnowledge(r.PathValue("workspaceID"), actor(r), r.URL.Query().Get("q"))})
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/knowledge-search", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Query string `json:"query"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": store.SearchKnowledge(r.PathValue("workspaceID"), actor(r), input.Query)})
+	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/similar", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		incident, err := store.Incident(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		if err != nil {
 			respond(w, http.StatusOK, nil, err)

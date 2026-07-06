@@ -116,3 +116,26 @@ func TestSearchOnlyReturnsVisibleIncidents(t *testing.T) {
 		t.Fatalf("results=%+v hidden=%s", results, hidden.ID)
 	}
 }
+
+func TestKnowledgeSearchAndDerivedPostRespectBothAccessBoundaries(t *testing.T) {
+	s := NewStore()
+	source, _ := s.CreateIncident("w", "alice", "Source", "", "SEV-2", nil)
+	destination, _ := s.CreateIncident("w", "alice", "Destination", "", "SEV-2", nil)
+	private, _ := s.CreateIncident("w", "carol", "Private", "", "SEV-1", nil)
+	post, _ := s.AddPost("w", source.ID, "alice", "", "", []Block{{Type: "log", Payload: map[string]any{"text": "needle timeout evidence"}}})
+	_, _ = s.AddPost("w", private.ID, "carol", "", "", []Block{{Type: "log", Payload: map[string]any{"text": "needle secret"}}})
+	results := s.SearchKnowledge("w", "alice", "needle")
+	if len(results) != 1 || results[0].IncidentID != source.ID {
+		t.Fatalf("search leaked or missed results: %#v", results)
+	}
+	if _, err := s.DerivePost("w", source.ID, post.ID, destination.ID, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	derived, _ := s.Feed("w", destination.ID)
+	if len(derived) != 1 || derived[0].DerivedFromPostID != post.ID || derived[0].Blocks[0].Payload["derivedFromIncidentId"] != source.ID {
+		t.Fatalf("provenance = %#v", derived)
+	}
+	if _, err := s.DerivePost("w", source.ID, post.ID, private.ID, "alice"); err != ErrForbidden {
+		t.Fatalf("destination access = %v", err)
+	}
+}

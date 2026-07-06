@@ -25,6 +25,7 @@ func TestIncidentHTTPFlow(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/acme/incidents/"+incident.ID, nil)
+	request.Header.Set("X-Principal-ID", "alice")
 	recorder = httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -32,6 +33,7 @@ func TestIncidentHTTPFlow(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/other/incidents/"+incident.ID, nil)
+	request.Header.Set("X-Principal-ID", "alice")
 	recorder = httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNotFound {
@@ -73,6 +75,7 @@ func TestEmptyCoordinationHTTPSerializesCollectionsAsArrays(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/acme/incidents/"+incident.ID+"/coordination", nil)
+	request.Header.Set("X-Principal-ID", "alice")
 	recorder = httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 	var body map[string]json.RawMessage
@@ -83,6 +86,56 @@ func TestEmptyCoordinationHTTPSerializesCollectionsAsArrays(t *testing.T) {
 		if string(body[field]) != "[]" {
 			t.Errorf("%s = %s, want []", field, body[field])
 		}
+	}
+}
+
+func TestIncidentReadsRequireCurrentMembership(t *testing.T) {
+	store := NewStore()
+	incident, err := store.CreateIncident("acme", "alice", "Private incident", "", "SEV-2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddMembership("acme", incident.ID, "alice", "bob", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, store)
+
+	doGet := func(path, principal string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if principal != "" {
+			req.Header.Set("X-Principal-ID", principal)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	base := "/api/v1/workspaces/acme/incidents/" + incident.ID
+	if got := doGet(base+"/posts", "mallory").Code; got != http.StatusForbidden {
+		t.Fatalf("non-member read = %d", got)
+	}
+	if got := doGet(base+"/posts", "").Code; got != http.StatusForbidden {
+		t.Fatalf("anonymous read = %d", got)
+	}
+	if got := doGet(base+"/posts", "bob").Code; got != http.StatusOK {
+		t.Fatalf("member read = %d", got)
+	}
+	if _, err = store.UpdateMembership("acme", incident.ID, "alice", "bob", "viewer", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := doGet(base+"/posts", "bob").Code; got != http.StatusForbidden {
+		t.Fatalf("revoked read = %d", got)
+	}
+
+	var list struct {
+		Items []Incident `json:"items"`
+	}
+	if err = json.Unmarshal(doGet("/api/v1/workspaces/acme/incidents", "mallory").Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 0 {
+		t.Fatalf("non-member list leaked %d incidents", len(list.Items))
 	}
 }
 

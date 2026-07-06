@@ -96,6 +96,54 @@ type AlertResult struct {
 	DedupKey string   `json:"dedupKey"`
 }
 
+type KnowledgeSearchResult struct {
+	Kind       string `json:"kind"`
+	IncidentID string `json:"incidentId"`
+	Title      string `json:"title"`
+	Excerpt    string `json:"excerpt"`
+}
+
+func (s *Store) SearchKnowledge(workspaceID, principalID, query string) []KnowledgeSearchResult {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" || principalID == "" {
+		return []KnowledgeSearchResult{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	results := []KnowledgeSearchResult{}
+	add := func(kind, incidentID, title, value string) {
+		if strings.Contains(strings.ToLower(value), query) {
+			results = append(results, KnowledgeSearchResult{Kind: kind, IncidentID: incidentID, Title: title, Excerpt: value})
+		}
+	}
+	for id, incident := range s.incidents {
+		if incident.WorkspaceID != workspaceID {
+			continue
+		}
+		if _, visible := s.activeRole(id, principalID); !visible {
+			continue
+		}
+		add("incident", id, incident.Title, incident.Title+" "+incident.Description+" "+incident.VerifiedSummary)
+		for _, post := range s.posts[id] {
+			for _, block := range post.Blocks {
+				if text, ok := block.Payload["text"].(string); ok {
+					add("post", id, incident.Title, text)
+				}
+			}
+		}
+		for _, fact := range s.facts[id] {
+			add("fact", id, incident.Title, fact.Statement)
+		}
+		for _, decision := range s.decisions[id] {
+			add("decision", id, incident.Title, decision.Statement)
+		}
+		for _, action := range s.actions[id] {
+			add("action", id, incident.Title, action.Title)
+		}
+	}
+	return results
+}
+
 type TelemetryClient interface {
 	Query(context.Context, string, time.Time, time.Time, ContextQuery) (data any, sourceURL string, err error)
 }
@@ -174,7 +222,7 @@ func SimulateRecipe(recipe ContextRecipe, labels map[string]string, at time.Time
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
-	c := ContextCollection{ID: "simulation", WorkspaceID: recipe.WorkspaceID, RecipeID: recipe.ID, RecipeVersion: recipe.Version, Status: "simulated", StartedAt: at, CompletedAt: at}
+	c := ContextCollection{ID: "simulation", WorkspaceID: recipe.WorkspaceID, RecipeID: recipe.ID, RecipeVersion: recipe.Version, Status: "simulated", Snapshots: []ContextSnapshot{}, Failures: []RetrievalFailure{}, StartedAt: at, CompletedAt: at}
 	for _, q := range recipe.Queries {
 		rendered, err := renderQuery(q.Query, labels)
 		if err != nil {
@@ -302,7 +350,7 @@ func (svc ContextService) Collect(ctx context.Context, store *Store, workspaceID
 		return ContextCollection{}, ErrForbidden
 	}
 	now := store.now().UTC()
-	c := ContextCollection{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, RecipeID: recipe.ID, RecipeVersion: recipe.Version, RefreshOf: refreshOf, Status: "running", RequestedBy: actorID, StartedAt: now}
+	c := ContextCollection{ID: newID(), WorkspaceID: workspaceID, IncidentID: incidentID, RecipeID: recipe.ID, RecipeVersion: recipe.Version, RefreshOf: refreshOf, Status: "running", Snapshots: []ContextSnapshot{}, Failures: []RetrievalFailure{}, RequestedBy: actorID, StartedAt: now}
 	for _, q := range recipe.Queries {
 		rendered, err := renderQuery(q.Query, labels)
 		if err != nil {

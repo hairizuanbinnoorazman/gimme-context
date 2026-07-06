@@ -100,3 +100,34 @@ func TestAgentDiscardsClaimsWithoutVisibleRunEvidence(t *testing.T) {
 		t.Fatalf("proposals=%v", run.ProposalIDs)
 	}
 }
+
+func TestApprovedAIDetectionHonoursGatesAndCanBeCancelled(t *testing.T) {
+	s := NewStore()
+	detector, err := s.CreateAgent("w", "admin", "Detector", "Detect incidents", "vertex-ai", "gemini-detector", []string{"detection"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	low, err := s.DetectIncident("w", "alice", detector.ID, "Low confidence", "SEV-2", "scheduled scan", "errors-rise", 0.6, 0.8, "SEV-3", []string{"metric://errors"})
+	if err != nil || low.Created || low.Reason != "confidence_below_gate" {
+		t.Fatalf("low confidence = %#v, %v", low, err)
+	}
+	lowSeverity, err := s.DetectIncident("w", "alice", detector.ID, "Low severity", "SEV-4", "scheduled scan", "errors-rise", 0.9, 0.8, "SEV-3", []string{"metric://errors"})
+	if err != nil || lowSeverity.Created || lowSeverity.Reason != "severity_below_gate" {
+		t.Fatalf("low severity = %#v, %v", lowSeverity, err)
+	}
+	created, err := s.DetectIncident("w", "alice", detector.ID, "Detected outage", "SEV-2", "scheduled scan", "errors-rise", 0.95, 0.8, "SEV-3", []string{"metric://errors"})
+	if err != nil || !created.Created || created.Incident == nil || created.Incident.Detection == nil {
+		t.Fatalf("created = %#v, %v", created, err)
+	}
+	if created.Incident.Detection.Model != "gemini-detector" || len(created.Incident.Detection.SupportingEvidence) != 1 {
+		t.Fatal("detection provenance missing")
+	}
+	cancelled, err := s.CancelDetectedIncident("w", created.Incident.ID, "alice")
+	if err != nil || cancelled.Lifecycle != "cancelled" {
+		t.Fatalf("cancelled = %#v, %v", cancelled, err)
+	}
+	manual, _ := s.CreateIncident("w", "alice", "Manual", "", "SEV-3", nil)
+	if _, err = s.CancelDetectedIncident("w", manual.ID, "alice"); err != ErrConflict {
+		t.Fatalf("manual false-alarm cancellation = %v", err)
+	}
+}

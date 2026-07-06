@@ -46,6 +46,9 @@ func registerAgentHTTP(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusCreated, v, e)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/agent-runs", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		v, e := store.AgentRuns(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": v}, e)
 	})
@@ -64,6 +67,9 @@ func registerAgentHTTP(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusCreated, v, e)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/ai-proposals", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		v, e := store.AIProposals(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": v}, e)
 	})

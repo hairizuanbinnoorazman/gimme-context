@@ -42,16 +42,33 @@ type Block struct {
 }
 
 type Post struct {
-	ID             string    `json:"id"`
-	WorkspaceID    string    `json:"workspaceId"`
-	IncidentID     string    `json:"incidentId"`
-	AuthorID       string    `json:"authorId"`
-	ReplyToPostID  string    `json:"replyToPostId,omitempty"`
-	ReplyToBlockID string    `json:"replyToBlockId,omitempty"`
-	Revision       int       `json:"revision"`
-	Blocks         []Block   `json:"blocks"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID                string    `json:"id"`
+	WorkspaceID       string    `json:"workspaceId"`
+	IncidentID        string    `json:"incidentId"`
+	AuthorID          string    `json:"authorId"`
+	ReplyToPostID     string    `json:"replyToPostId,omitempty"`
+	ReplyToBlockID    string    `json:"replyToBlockId,omitempty"`
+	DerivedFromPostID string    `json:"derivedFromPostId,omitempty"`
+	Revision          int       `json:"revision"`
+	Blocks            []Block   `json:"blocks"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+}
+
+type IncidentRelationship struct {
+	ID               string    `json:"id"`
+	WorkspaceID      string    `json:"workspaceId"`
+	SourceIncidentID string    `json:"sourceIncidentId"`
+	TargetIncidentID string    `json:"targetIncidentId"`
+	Kind             string    `json:"kind"`
+	CreatedBy        string    `json:"createdBy"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
+type IncidentSplitResult struct {
+	Incident     Incident             `json:"incident"`
+	Relationship IncidentRelationship `json:"relationship"`
+	CopiedPosts  []Post               `json:"copiedPosts"`
 }
 
 type PermanentChannel struct {
@@ -65,19 +82,38 @@ type PermanentChannel struct {
 }
 
 type Incident struct {
-	ID               string            `json:"id"`
-	WorkspaceID      string            `json:"workspaceId"`
-	Title            string            `json:"title"`
-	Description      string            `json:"description,omitempty"`
-	OwnerID          string            `json:"ownerId"`
-	Severity         string            `json:"severity"`
-	Lifecycle        string            `json:"lifecycle"`
-	Scope            []string          `json:"scope"`
-	VerifiedSummary  string            `json:"verifiedSummary,omitempty"`
-	ClosureChecklist []ChecklistItem   `json:"closureChecklist"`
-	TemplateSnapshot *TemplateSnapshot `json:"templateSnapshot,omitempty"`
-	CreatedAt        time.Time         `json:"createdAt"`
-	UpdatedAt        time.Time         `json:"updatedAt"`
+	ID                   string             `json:"id"`
+	WorkspaceID          string             `json:"workspaceId"`
+	Title                string             `json:"title"`
+	Description          string             `json:"description,omitempty"`
+	OwnerID              string             `json:"ownerId"`
+	Severity             string             `json:"severity"`
+	Lifecycle            string             `json:"lifecycle"`
+	Scope                []string           `json:"scope"`
+	VerifiedSummary      string             `json:"verifiedSummary,omitempty"`
+	ClosureChecklist     []ChecklistItem    `json:"closureChecklist"`
+	TemplateSnapshot     *TemplateSnapshot  `json:"templateSnapshot,omitempty"`
+	ConfigurationHistory []TemplateSnapshot `json:"configurationHistory"`
+	Detection            *IncidentDetection `json:"detection,omitempty"`
+	CreatedAt            time.Time          `json:"createdAt"`
+	UpdatedAt            time.Time          `json:"updatedAt"`
+}
+
+type IncidentDetection struct {
+	DetectorID         string   `json:"detectorId"`
+	Trigger            string   `json:"trigger"`
+	Model              string   `json:"model"`
+	Rule               string   `json:"rule"`
+	Confidence         float64  `json:"confidence"`
+	ConfidenceGate     float64  `json:"confidenceGate"`
+	MinimumSeverity    string   `json:"minimumSeverity"`
+	SupportingEvidence []string `json:"supportingEvidence"`
+}
+
+type DetectionResult struct {
+	Created  bool      `json:"created"`
+	Reason   string    `json:"reason,omitempty"`
+	Incident *Incident `json:"incident,omitempty"`
 }
 
 type IncidentTemplate struct {
@@ -236,6 +272,7 @@ type Store struct {
 	approvals           map[string][]Approval
 	templates           map[string][]IncidentTemplate
 	memberships         map[string][]Membership
+	relationships       []IncidentRelationship
 	audit               []AuditEvent
 	contextRecipes      map[string][]ContextRecipe
 	collections         map[string][]ContextCollection
@@ -258,6 +295,11 @@ type Store struct {
 	github              GitHubService
 	modelGateway        ModelGateway
 	now                 func() time.Time
+}
+
+var validRelationshipKind = map[string]bool{
+	"related": true, "duplicate": true, "caused-by": true, "follow-up-to": true,
+	"parent-of": true, "recurrence-of": true,
 }
 
 func NewStore() *Store {
@@ -675,6 +717,294 @@ func (s *Store) ListIncidents(workspaceID string) []Incident {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
 	return items
+}
+
+func (s *Store) ListIncidentsForPrincipal(workspaceID, principalID string) []Incident {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := []Incident{}
+	for _, incident := range s.incidents {
+		if incident.WorkspaceID != workspaceID {
+			continue
+		}
+		if _, ok := s.activeRole(incident.ID, principalID); ok {
+			result = append(result, cloneIncident(incident))
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result
+}
+
+func (s *Store) CanReadIncident(workspaceID, incidentID, principalID string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return ErrNotFound
+	}
+	if principalID == "" {
+		return ErrForbidden
+	}
+	if _, ok := s.activeRole(incidentID, principalID); !ok {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func (s *Store) RelateIncidents(workspaceID, sourceID, targetID, actorID, kind string) (IncidentRelationship, error) {
+	kind = strings.TrimSpace(kind)
+	if sourceID == targetID || !validRelationshipKind[kind] {
+		return IncidentRelationship{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source, sourceOK := s.incidents[sourceID]
+	target, targetOK := s.incidents[targetID]
+	if !sourceOK || !targetOK || source.WorkspaceID != workspaceID || target.WorkspaceID != workspaceID {
+		return IncidentRelationship{}, ErrNotFound
+	}
+	if !s.canEdit(sourceID, actorID) {
+		return IncidentRelationship{}, ErrForbidden
+	}
+	if _, ok := s.activeRole(targetID, actorID); !ok {
+		return IncidentRelationship{}, ErrForbidden
+	}
+	for _, item := range s.relationships {
+		if item.SourceIncidentID == sourceID && item.TargetIncidentID == targetID && item.Kind == kind {
+			return IncidentRelationship{}, ErrConflict
+		}
+	}
+	now := s.now().UTC()
+	item := IncidentRelationship{ID: newID(), WorkspaceID: workspaceID, SourceIncidentID: sourceID, TargetIncidentID: targetID, Kind: kind, CreatedBy: actorID, CreatedAt: now}
+	s.relationships = append(s.relationships, item)
+	s.record(workspaceID, actorID, "incident.related."+kind, item.ID, now)
+	return item, nil
+}
+
+func (s *Store) DetectIncident(workspaceID, sponsorID, detectorID, title, severity, trigger, rule string, confidence, confidenceGate float64, minimumSeverity string, evidence []string) (DetectionResult, error) {
+	title, trigger, rule = strings.TrimSpace(title), strings.TrimSpace(trigger), strings.TrimSpace(rule)
+	if workspaceID == "" || sponsorID == "" || detectorID == "" || title == "" || trigger == "" || rule == "" || confidence < 0 || confidence > 1 || confidenceGate < 0 || confidenceGate > 1 || !validSeverity[severity] || !validSeverity[minimumSeverity] || len(evidence) == 0 {
+		return DetectionResult{}, ErrInvalid
+	}
+	s.mu.RLock()
+	detector, ok := s.agents[detectorID]
+	s.mu.RUnlock()
+	if !ok || detector.WorkspaceID != workspaceID || detector.Status != "approved" {
+		return DetectionResult{}, ErrForbidden
+	}
+	if confidence < confidenceGate {
+		return DetectionResult{Created: false, Reason: "confidence_below_gate"}, nil
+	}
+	severityRank := map[string]int{"SEV-1": 1, "SEV-2": 2, "SEV-3": 3, "SEV-4": 4, "unclassified": 5}
+	if severityRank[severity] > severityRank[minimumSeverity] {
+		return DetectionResult{Created: false, Reason: "severity_below_gate"}, nil
+	}
+	incident, err := s.CreateIncident(workspaceID, sponsorID, title, "Created by approved AI detection", severity, nil)
+	if err != nil {
+		return DetectionResult{}, err
+	}
+	detection := &IncidentDetection{DetectorID: detectorID, Trigger: trigger, Model: detector.Model, Rule: rule, Confidence: confidence, ConfidenceGate: confidenceGate, MinimumSeverity: minimumSeverity, SupportingEvidence: append([]string(nil), evidence...)}
+	s.mu.Lock()
+	stored := s.incidents[incident.ID]
+	stored.Detection = detection
+	s.incidents[incident.ID] = stored
+	s.record(workspaceID, detectorID, "incident.created_from_ai_detection", incident.ID, stored.CreatedAt)
+	s.mu.Unlock()
+	incident.Detection = detection
+	return DetectionResult{Created: true, Incident: &incident}, nil
+}
+
+func (s *Store) MigrateIncidentTemplate(workspaceID, incidentID, actorID, templateID string, version int, severityOverride string, scopeOverride []string) (Incident, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return Incident{}, ErrNotFound
+	}
+	if !s.canEdit(incidentID, actorID) {
+		return Incident{}, ErrForbidden
+	}
+	versions := s.templates[templateID]
+	if len(versions) == 0 || versions[0].WorkspaceID != workspaceID {
+		return Incident{}, ErrNotFound
+	}
+	if version == 0 {
+		version = len(versions)
+	}
+	if version < 1 || version > len(versions) {
+		return Incident{}, ErrNotFound
+	}
+	template := versions[version-1]
+	if incident.TemplateSnapshot != nil {
+		incident.ConfigurationHistory = append(incident.ConfigurationHistory, *incident.TemplateSnapshot)
+	}
+	snapshot := TemplateSnapshot{TemplateID: template.ID, Version: template.Version, Name: template.Name, Description: template.Description, DefaultSeverity: template.DefaultSeverity, DefaultScope: append([]string{}, template.DefaultScope...), ClosureChecklist: cloneChecklist(template.ClosureChecklist)}
+	incident.TemplateSnapshot = &snapshot
+	incident.Severity, incident.Scope, incident.ClosureChecklist = template.DefaultSeverity, append([]string{}, template.DefaultScope...), cloneChecklist(template.ClosureChecklist)
+	if severityOverride != "" {
+		if !validSeverity[severityOverride] {
+			return Incident{}, ErrInvalid
+		}
+		incident.Severity = severityOverride
+	}
+	if scopeOverride != nil {
+		incident.Scope = append([]string{}, scopeOverride...)
+	}
+	incident.UpdatedAt = s.now().UTC()
+	s.incidents[incidentID] = incident
+	s.record(workspaceID, actorID, "incident.configuration_migrated", incidentID, incident.UpdatedAt)
+	return cloneIncident(incident), nil
+}
+
+func (s *Store) CancelDetectedIncident(workspaceID, incidentID, actorID string) (Incident, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return Incident{}, ErrNotFound
+	}
+	if !s.canEdit(incidentID, actorID) {
+		return Incident{}, ErrForbidden
+	}
+	if incident.Detection == nil || incident.Lifecycle == "cancelled" {
+		return Incident{}, ErrConflict
+	}
+	incident.Lifecycle = "cancelled"
+	incident.UpdatedAt = s.now().UTC()
+	s.incidents[incidentID] = incident
+	s.record(workspaceID, actorID, "incident.ai_false_alarm_cancelled", incidentID, incident.UpdatedAt)
+	return cloneIncident(incident), nil
+}
+
+func (s *Store) IncidentRelationships(workspaceID, incidentID, actorID string) ([]IncidentRelationship, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	incident, ok := s.incidents[incidentID]
+	if !ok || incident.WorkspaceID != workspaceID {
+		return nil, ErrNotFound
+	}
+	if _, ok = s.activeRole(incidentID, actorID); !ok {
+		return nil, ErrForbidden
+	}
+	result := []IncidentRelationship{}
+	for _, item := range s.relationships {
+		if item.WorkspaceID != workspaceID || (item.SourceIncidentID != incidentID && item.TargetIncidentID != incidentID) {
+			continue
+		}
+		other := item.SourceIncidentID
+		if other == incidentID {
+			other = item.TargetIncidentID
+		}
+		if _, visible := s.activeRole(other, actorID); visible {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) SplitIncident(workspaceID, sourceID, actorID, title string, postIDs []string) (IncidentSplitResult, error) {
+	title = strings.TrimSpace(title)
+	if title == "" || len(postIDs) == 0 {
+		return IncidentSplitResult{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source, ok := s.incidents[sourceID]
+	if !ok || source.WorkspaceID != workspaceID {
+		return IncidentSplitResult{}, ErrNotFound
+	}
+	if !s.canEdit(sourceID, actorID) {
+		return IncidentSplitResult{}, ErrForbidden
+	}
+	wanted := map[string]bool{}
+	for _, id := range postIDs {
+		wanted[id] = true
+	}
+	selected := []Post{}
+	for _, post := range s.posts[sourceID] {
+		if wanted[post.ID] {
+			selected = append(selected, clonePost(post))
+			delete(wanted, post.ID)
+		}
+	}
+	if len(wanted) != 0 {
+		return IncidentSplitResult{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	incident := Incident{ID: newID(), WorkspaceID: workspaceID, Title: title, Description: "Split from incident " + sourceID, OwnerID: actorID, Severity: source.Severity, Lifecycle: "open", Scope: append([]string{}, source.Scope...), ClosureChecklist: defaultClosureChecklist(), CreatedAt: now, UpdatedAt: now}
+	s.incidents[incident.ID] = incident
+	s.memberships[incident.ID] = []Membership{{WorkspaceID: workspaceID, IncidentID: incident.ID, PrincipalID: actorID, Role: "owner", Source: "split", Status: "active", AddedBy: actorID, CreatedAt: now, UpdatedAt: now}}
+	postMap, blockMap := map[string]string{}, map[string]string{}
+	for _, post := range selected {
+		postMap[post.ID] = newID()
+		for _, block := range post.Blocks {
+			blockMap[block.ID] = newID()
+		}
+	}
+	copied := []Post{}
+	for _, original := range selected {
+		copy := clonePost(original)
+		copy.ID, copy.IncidentID, copy.DerivedFromPostID = postMap[original.ID], incident.ID, original.ID
+		copy.Revision, copy.CreatedAt, copy.UpdatedAt = 1, now, now
+		if mapped := postMap[original.ReplyToPostID]; mapped != "" {
+			copy.ReplyToPostID = mapped
+		} else {
+			copy.ReplyToPostID = ""
+		}
+		if mapped := blockMap[original.ReplyToBlockID]; mapped != "" {
+			copy.ReplyToBlockID = mapped
+		} else {
+			copy.ReplyToBlockID = ""
+		}
+		for i := range copy.Blocks {
+			copy.Blocks[i].ID = blockMap[original.Blocks[i].ID]
+		}
+		s.posts[incident.ID] = append(s.posts[incident.ID], copy)
+		s.postHistory[copy.ID] = []Post{clonePost(copy)}
+		copied = append(copied, clonePost(copy))
+	}
+	rel := IncidentRelationship{ID: newID(), WorkspaceID: workspaceID, SourceIncidentID: sourceID, TargetIncidentID: incident.ID, Kind: "parent-of", CreatedBy: actorID, CreatedAt: now}
+	s.relationships = append(s.relationships, rel)
+	s.record(workspaceID, actorID, "incident.split", incident.ID, now)
+	return IncidentSplitResult{Incident: cloneIncident(incident), Relationship: rel, CopiedPosts: copied}, nil
+}
+
+func (s *Store) DerivePost(workspaceID, sourceIncidentID, postID, destinationIncidentID, actorID string) (Post, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source, sourceOK := s.incidents[sourceIncidentID]
+	destination, destinationOK := s.incidents[destinationIncidentID]
+	if !sourceOK || !destinationOK || source.WorkspaceID != workspaceID || destination.WorkspaceID != workspaceID {
+		return Post{}, ErrNotFound
+	}
+	if _, ok := s.activeRole(sourceIncidentID, actorID); !ok {
+		return Post{}, ErrForbidden
+	}
+	if !s.canParticipate(destinationIncidentID, actorID) {
+		return Post{}, ErrForbidden
+	}
+	var original *Post
+	for i := range s.posts[sourceIncidentID] {
+		if s.posts[sourceIncidentID][i].ID == postID {
+			copy := clonePost(s.posts[sourceIncidentID][i])
+			original = &copy
+			break
+		}
+	}
+	if original == nil {
+		return Post{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	blocks := prepareBlocks(original.Blocks)
+	for i := range blocks {
+		blocks[i].Payload["derivedFromIncidentId"] = sourceIncidentID
+		blocks[i].Payload["derivedFromPostId"] = postID
+	}
+	post := Post{ID: newID(), WorkspaceID: workspaceID, IncidentID: destinationIncidentID, AuthorID: actorID, DerivedFromPostID: postID, Revision: 1, Blocks: blocks, CreatedAt: now, UpdatedAt: now}
+	s.posts[destinationIncidentID] = append(s.posts[destinationIncidentID], post)
+	s.postHistory[post.ID] = []Post{clonePost(post)}
+	s.record(workspaceID, actorID, "post.derived", post.ID, now)
+	return clonePost(post), nil
 }
 
 func (s *Store) UpdateIncident(workspaceID, id, actorID, lifecycle, severity, ownerID string) (Incident, error) {
@@ -1259,11 +1589,21 @@ func cloneIncident(incident Incident) Incident {
 	// list-shaped contract.
 	incident.Scope = append([]string{}, incident.Scope...)
 	incident.ClosureChecklist = cloneChecklist(incident.ClosureChecklist)
+	incident.ConfigurationHistory = append([]TemplateSnapshot{}, incident.ConfigurationHistory...)
+	for i := range incident.ConfigurationHistory {
+		incident.ConfigurationHistory[i].DefaultScope = append([]string(nil), incident.ConfigurationHistory[i].DefaultScope...)
+		incident.ConfigurationHistory[i].ClosureChecklist = cloneChecklist(incident.ConfigurationHistory[i].ClosureChecklist)
+	}
 	if incident.TemplateSnapshot != nil {
 		snapshot := *incident.TemplateSnapshot
 		snapshot.DefaultScope = append([]string(nil), snapshot.DefaultScope...)
 		snapshot.ClosureChecklist = cloneChecklist(snapshot.ClosureChecklist)
 		incident.TemplateSnapshot = &snapshot
+	}
+	if incident.Detection != nil {
+		detection := *incident.Detection
+		detection.SupportingEvidence = append([]string(nil), detection.SupportingEvidence...)
+		incident.Detection = &detection
 	}
 	return incident
 }

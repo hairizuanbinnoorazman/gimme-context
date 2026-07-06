@@ -14,10 +14,10 @@ port apiResponse : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
-    { workspace : String, actor : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe, agents : List Agent
-    , active : Active, posts : List Post, draft : String, blockType : String, replyTo : Maybe Post, editing : Maybe Post
+    { workspace : String, actor : String, actorDraft : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe, agents : List Agent
+    , active : Active, posts : List Post, draft : String, blockType : String, replyTo : Maybe Post, replyToBlockId : String, editing : Maybe Post
     , createKind : String, createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
-    , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, investigations : List Investigation, busy : Bool, error : Maybe String
+    , structuredType : String, coordination : Coordination, memberships : List Membership, relationships : List IncidentRelationship, relationTarget : String, relationKind : String, splitTitle : String, collections : List ContextCollection, recipePreview : Maybe ContextCollection, recipeId : String, searchQuery : String, searchResults : List KnowledgeSearchResult, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, investigations : List Investigation, busy : Bool, error : Maybe String
     , adminOpen : Bool, adminAgentName : String, adminAgentPurpose : String, adminAgentModel : String, adminTemplateName : String, adminTemplateScope : String, auditEvents : List AuditEvent
     }
 
@@ -25,13 +25,13 @@ type Active = None | IncidentActive Incident | ChannelActive Channel
 
 type alias Incident =
     { id : String, title : String, ownerId : String, severity : String, lifecycle : String
-    , scope : List String, verifiedSummary : String, closureChecklist : List ChecklistItem
+    , scope : List String, verifiedSummary : String, closureChecklist : List ChecklistItem, aiDetected : Bool, configuration : String
     }
 
 type alias ChecklistItem = { id : String, label : String, completed : Bool }
 type alias Channel = { id : String, title : String, description : String }
 type alias Template = { id : String, name : String, version : Int }
-type alias Post = { id : String, authorId : String, revision : Int, replyToPostId : String, blocks : List Block, createdAt : String }
+type alias Post = { id : String, authorId : String, revision : Int, replyToPostId : String, replyToBlockId : String, blocks : List Block, createdAt : String }
 type alias Block = { id : String, kind : String, body : String }
 type alias Response = { tag : String, ok : Bool, status : Int, body : Decode.Value }
 type alias Coordination = { facts : List Fact, decisions : List Decision, actions : List Action, polls : List Poll, approvals : List Approval }
@@ -41,6 +41,9 @@ type alias Action = { id : String, title : String, status : String }
 type alias Poll = { id : String, question : String, options : List PollOption }
 type alias PollOption = { id : String, label : String }
 type alias Approval = { id : String, actionId : String, outcome : String }
+type alias Membership = { principalId : String, role : String, status : String }
+type alias IncidentRelationship = { id : String, sourceIncidentId : String, targetIncidentId : String, kind : String }
+type alias KnowledgeSearchResult = { kind : String, incidentId : String, title : String, excerpt : String }
 type alias ContextRecipe = { id : String, name : String, version : Int }
 type alias ContextCollection = { id : String, status : String, snapshots : List ContextSnapshot, failures : List RetrievalFailure }
 type alias ContextSnapshot = { source : String, query : String, retrievedAt : String }
@@ -59,20 +62,20 @@ type alias AuditEvent = { actorId : String, action : String, subjectId : String,
 
 type Msg
     = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String | SetBlockType String
-    | Publish | SetReply Post | EditPost Post | CancelReply | SetCreateKind String | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateChannel
-    | AdvanceLifecycle | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
-    | SetActor String | SetMember String | SetMemberRole String | AddMember | TransferOwnership | SetStructured String | SetStructuredType String | AddStructured
-    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | SetWorkflow String | StartWorkflow | SetWorkflowView String | WorkflowCommand WorkflowRun String String | StartInvestigation | DestroyInvestigation Investigation | DismissError | Reload
+    | Publish | SetReply Post String | DerivePost Post | EditPost Post | CancelReply | SetCreateKind String | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateDetectedIncident | CreateChannel
+    | AdvanceLifecycle | CancelFalseAlarm | MigrateConfiguration | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
+    | SetActorDraft String | ApplyActor | SetMember String | SetMemberRole String | AddMember | UpdateMember Membership String Bool | TransferOwnership | SetRelationTarget String | SetRelationKind String | RelateIncident | SetSplitTitle String | SplitIncident | SetStructured String | SetStructuredType String | AddStructured
+    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | PreviewContext | CollectContext | RefreshContext ContextCollection | SetSearchQuery String | SearchKnowledge | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | SetWorkflow String | StartWorkflow | SetWorkflowView String | WorkflowCommand WorkflowRun String String | StartInvestigation | ExecuteInvestigation Investigation String | PrepareInvestigationPatch Investigation | CreateInvestigationPR Investigation | DestroyInvestigation Investigation | DismissError | Reload
     | OpenAdmin | CloseAdmin | SetAdminAgentName String | SetAdminAgentPurpose String | SetAdminAgentModel String | CreateAdminAgent | SetAdminTemplateName String | SetAdminTemplateScope String | CreateAdminTemplate | LoadAudit
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { workspace = "acme", actor = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
-      , draft = "", blockType = "markdown", replyTo = Nothing, editing = Nothing, createKind = "incident", createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
-      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", investigations = [], busy = True, error = Nothing
+    ( { workspace = "acme", actor = "alice", actorDraft = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
+      , draft = "", blockType = "markdown", replyTo = Nothing, replyToBlockId = "", editing = Nothing, createKind = "incident", createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
+      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, memberships = [], relationships = [], relationTarget = "", relationKind = "related", splitTitle = "", collections = [], recipePreview = Nothing, recipeId = "", searchQuery = "", searchResults = [], similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", investigations = [], busy = True, error = Nothing
       , adminOpen = False, adminAgentName = "", adminAgentPurpose = "", adminAgentModel = "codex-session", adminTemplateName = "", adminTemplateScope = "", auditEvents = [] }
-    , Cmd.batch [ get "incidents" "/api/v1/workspaces/acme/incidents", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents", get "workflowDefinitions" "/api/v1/workspaces/acme/workflow-definitions" ]
+    , Cmd.batch [ getAs "incidents" "/api/v1/workspaces/acme/incidents" "alice", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents", get "workflowDefinitions" "/api/v1/workspaces/acme/workflow-definitions" ]
     )
 
 
@@ -80,28 +83,40 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         GotApi raw -> handleResponse raw model
-        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, collections = [], similar = [], agentRuns = [], aiProposals = [], workflowRuns = [], investigations = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ get "posts" (incidentPath model incident.id ++ "/posts"), get "coordination" (incidentPath model incident.id ++ "/coordination"), get "collections" (incidentPath model incident.id ++ "/context-collections"), getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, get "agentRuns" (incidentPath model incident.id ++ "/agent-runs"), get "aiProposals" (incidentPath model incident.id ++ "/ai-proposals"), get "workflowRuns" (incidentPath model incident.id ++ "/workflow-runs"), get "investigations" (incidentPath model incident.id ++ "/investigations") ] )
+        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, memberships = [], relationships = [], relationTarget = "", splitTitle = "", collections = [], recipePreview = Nothing, similar = [], agentRuns = [], aiProposals = [], workflowRuns = [], investigations = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ getAs "posts" (incidentPath model incident.id ++ "/posts") model.actor, getAs "memberships" (incidentPath model incident.id ++ "/members") model.actor, getAs "relationships" (incidentPath model incident.id ++ "/relationships") model.actor, getAs "coordination" (incidentPath model incident.id ++ "/coordination") model.actor, getAs "collections" (incidentPath model incident.id ++ "/context-collections") model.actor, getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, getAs "agentRuns" (incidentPath model incident.id ++ "/agent-runs") model.actor, getAs "aiProposals" (incidentPath model incident.id ++ "/ai-proposals") model.actor, getAs "workflowRuns" (incidentPath model incident.id ++ "/workflow-runs") model.actor, getAs "investigations" (incidentPath model incident.id ++ "/investigations") model.actor ] )
         SelectChannel channel -> ( { model | active = ChannelActive channel, posts = [], error = Nothing }, get "posts" (channelPath model channel.id ++ "/posts") )
         SetDraft v -> ( { model | draft = v }, Cmd.none )
         SetBlockType v -> ( { model | blockType = v }, Cmd.none )
-        SetReply post -> ( { model | replyTo = Just post, editing = Nothing }, Cmd.none )
+        SetReply post blockId -> ( { model | replyTo = Just post, replyToBlockId = blockId, editing = Nothing }, Cmd.none )
         EditPost post ->
             case post.blocks of
-                first :: _ -> ( { model | editing = Just post, replyTo = Nothing, draft = first.body, blockType = first.kind }, Cmd.none )
+                first :: _ -> ( { model | editing = Just post, replyTo = Nothing, replyToBlockId = "", draft = first.body, blockType = first.kind }, Cmd.none )
                 [] -> ( model, Cmd.none )
-        CancelReply -> ( { model | replyTo = Nothing, editing = Nothing, draft = "" }, Cmd.none )
+        CancelReply -> ( { model | replyTo = Nothing, replyToBlockId = "", editing = Nothing, draft = "" }, Cmd.none )
         SetCreateKind v -> ( { model | createKind = v, createTitle = "" }, Cmd.none )
         SetCreateTitle v -> ( { model | createTitle = v }, Cmd.none )
         SetCreateSeverity v -> ( { model | createSeverity = v }, Cmd.none )
         SetCreateScope v -> ( { model | createScope = v }, Cmd.none )
         SetTemplate v -> ( { model | templateId = v }, Cmd.none )
         SetSummary v -> ( { model | summaryDraft = v }, Cmd.none )
-        SetActor v -> ( { model | actor = v }, Cmd.none )
+        SetActorDraft v -> ( { model | actorDraft = v }, Cmd.none )
+        ApplyActor ->
+            let principal = String.trim model.actorDraft in
+            if principal == "" || principal == model.actor then
+                ( model, Cmd.none )
+            else
+                ( { model | actor = principal, actorDraft = principal, active = None, incidents = [], posts = [], memberships = [], coordination = emptyCoordination, collections = [], similar = [], agentRuns = [], aiProposals = [], workflowRuns = [], investigations = [], error = Nothing, busy = True }
+                , getAs "incidents" (workspacePath model ++ "/incidents") principal
+                )
         SetMember v -> ( { model | memberDraft = v }, Cmd.none )
         SetMemberRole v -> ( { model | memberRole = v }, Cmd.none )
+        SetRelationTarget v -> ( { model | relationTarget = v }, Cmd.none )
+        SetRelationKind v -> ( { model | relationKind = v }, Cmd.none )
+        SetSplitTitle v -> ( { model | splitTitle = v }, Cmd.none )
         SetStructured v -> ( { model | structuredDraft = v }, Cmd.none )
         SetStructuredType v -> ( { model | structuredType = v }, Cmd.none )
         SetRecipe v -> ( { model | recipeId = v }, Cmd.none )
+        SetSearchQuery v -> ( { model | searchQuery = v }, Cmd.none )
         SetAgent v -> ( { model | agentId = v }, Cmd.none )
         SetAgentTask v -> ( { model | agentTask = v }, Cmd.none )
         OpenAdmin -> ( { model | adminOpen = True, active = None, error = Nothing }, Cmd.batch [ get "agents" (workspacePath model ++ "/agents"), get "templates" (workspacePath model ++ "/incident-templates"), get "audit" (workspacePath model ++ "/audit-export") ] )
@@ -126,11 +141,26 @@ update msg model =
         StartWorkflow -> incidentCommand model "POST" "/workflow-runs" (Encode.object [ ( "definitionId", Encode.string model.workflowId ), ( "definitionVersion", Encode.int 0 ), ( "variables", Encode.object [] ) ])
         WorkflowCommand run commandName stepId -> incidentCommand model "POST" ("/workflow-runs/" ++ run.id ++ "/commands") (Encode.object [ ( "command", Encode.string commandName ), ( "stepId", Encode.string stepId ), ( "justification", Encode.string "Operator command from workflow view" ) ])
         StartInvestigation -> incidentCommand model "POST" "/investigations" (Encode.object [ ( "ref", Encode.string "" ), ( "ttlSeconds", Encode.int 3600 ) ])
+        ExecuteInvestigation item kind ->
+            let
+                commandParts =
+                    case kind of
+                        "diagnostic" -> [ "go", "test", "./..." ]
+                        "patch" -> [ "make", "patch" ]
+                        "test" -> [ "make", "test" ]
+                        _ -> []
+                targetUrl = if kind == "browser" then "https://staging.example.com/health" else ""
+            in
+            incidentCommand model "POST" ("/investigations/" ++ item.id ++ "/executions") (Encode.object [ ( "kind", Encode.string kind ), ( "summary", Encode.string (investigationSummary kind) ), ( "command", Encode.list Encode.string commandParts ), ( "url", Encode.string targetUrl ) ])
+        PrepareInvestigationPatch item -> incidentCommand model "POST" ("/investigations/" ++ item.id ++ "/patch") (Encode.object [ ( "branch", Encode.string ("agent/incident-" ++ String.left 8 item.id) ) ])
+        CreateInvestigationPR item -> incidentCommand model "POST" ("/investigations/" ++ item.id ++ "/pull-request") (Encode.object [ ( "title", Encode.string "Fix reproduced incident defect" ), ( "body", Encode.string "Verified through the bounded incident investigation workflow." ) ])
         DestroyInvestigation item -> incidentCommand model "POST" ("/investigations/" ++ item.id ++ "/destroy") (Encode.object [])
         CollectContext -> incidentCommand model "POST" "/context-collections" (Encode.object [ ( "recipeId", Encode.string model.recipeId ), ( "labels", Encode.object [] ) ])
+        PreviewContext -> command model "contextPreview" "POST" (workspacePath model ++ "/context-recipes/" ++ model.recipeId ++ "/simulate") (Encode.object [ ( "version", Encode.int 0 ), ( "labels", Encode.object [] ) ])
+        SearchKnowledge -> command model "knowledgeSearch" "POST" (workspacePath model ++ "/knowledge-search") (Encode.object [ ( "query", Encode.string (String.trim model.searchQuery) ) ])
         RefreshContext collection -> incidentCommand model "POST" ("/context-collections/" ++ collection.id ++ "/refresh") (Encode.object [ ( "labels", Encode.object [] ) ])
         DismissError -> ( { model | error = Nothing }, Cmd.none )
-        Reload -> ( { model | busy = True }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels") ] )
+        Reload -> ( { model | busy = True }, Cmd.batch [ getAs "incidents" (workspacePath model ++ "/incidents") model.actor, get "channels" (workspacePath model ++ "/permanent-channels") ] )
         CreateIncident ->
             if String.trim model.createTitle == "" then ( model, Cmd.none )
             else
@@ -138,6 +168,12 @@ update msg model =
                     fields = [ ( "title", Encode.string (String.trim model.createTitle) ) ]
                         ++ (if model.templateId == "" then [ ( "severity", Encode.string model.createSeverity ), ( "scope", Encode.list Encode.string (splitScope model.createScope) ) ] else [ ( "templateId", Encode.string model.templateId ) ])
                 in command model "mutate" "POST" (workspacePath model ++ "/incidents") (Encode.object fields)
+        CreateDetectedIncident ->
+            case model.agents of
+                detector :: _ ->
+                    if String.trim model.createTitle == "" then ( model, Cmd.none )
+                    else command model "mutate" "POST" (workspacePath model ++ "/ai-incident-detections") (Encode.object [ ( "detectorId", Encode.string detector.id ), ( "title", Encode.string (String.trim model.createTitle) ), ( "severity", Encode.string model.createSeverity ), ( "trigger", Encode.string "operator-requested detection evaluation" ), ( "rule", Encode.string "compose-demo-detection-policy-v1" ), ( "confidence", Encode.float 0.95 ), ( "confidenceGate", Encode.float 0.8 ), ( "minimumSeverity", Encode.string "SEV-4" ), ( "supportingEvidence", Encode.list Encode.string [ "operator-visible signal: " ++ String.trim model.createTitle ] ) ])
+                [] -> ( model, Cmd.none )
         CreateChannel ->
             if String.trim model.createTitle == "" then ( model, Cmd.none )
             else command model "mutate" "POST" (workspacePath model ++ "/permanent-channels") (Encode.object [ ( "title", Encode.string (String.trim model.createTitle) ) ])
@@ -145,6 +181,14 @@ update msg model =
         AdvanceLifecycle ->
             case model.active of
                 IncidentActive incident -> command model "incident" "PATCH" (incidentPath model incident.id) (Encode.object [ ( "lifecycle", Encode.string (nextLifecycle incident.lifecycle) ) ])
+                _ -> ( model, Cmd.none )
+        CancelFalseAlarm ->
+            case model.active of
+                IncidentActive incident -> command model "incident" "POST" (incidentPath model incident.id ++ "/cancel-false-alarm") (Encode.object [])
+                _ -> ( model, Cmd.none )
+        MigrateConfiguration ->
+            case model.active of
+                IncidentActive incident -> command model "incident" "POST" (incidentPath model incident.id ++ "/configuration-migrations") (Encode.object [ ( "templateId", Encode.string model.templateId ), ( "templateVersion", Encode.int 0 ) ])
                 _ -> ( model, Cmd.none )
         SaveSummary ->
             case model.active of
@@ -158,9 +202,19 @@ update msg model =
             case model.active of
                 IncidentActive incident -> command model "mutate" "POST" (incidentPath model incident.id ++ "/members") (Encode.object [ ( "principalId", Encode.string (String.trim model.memberDraft) ), ( "role", Encode.string model.memberRole ) ])
                 _ -> ( model, Cmd.none )
+        UpdateMember member role revoke ->
+            case model.active of
+                IncidentActive incident -> command model "mutate" "PATCH" (incidentPath model incident.id ++ "/members/" ++ member.principalId) (Encode.object [ ( "role", Encode.string role ), ( "revoke", Encode.bool revoke ) ])
+                _ -> ( model, Cmd.none )
         TransferOwnership ->
             case model.active of
                 IncidentActive incident -> command model "incident" "POST" (incidentPath model incident.id ++ "/ownership-transfers") (Encode.object [ ( "newOwnerId", Encode.string (String.trim model.memberDraft) ) ])
+                _ -> ( model, Cmd.none )
+        RelateIncident -> incidentCommand model "POST" "/relationships" (Encode.object [ ( "targetIncidentId", Encode.string model.relationTarget ), ( "kind", Encode.string model.relationKind ) ])
+        SplitIncident -> incidentCommand model "POST" "/split" (Encode.object [ ( "title", Encode.string (String.trim model.splitTitle) ), ( "postIds", Encode.list Encode.string (List.map .id model.posts) ) ])
+        DerivePost post ->
+            case model.active of
+                IncidentActive incident -> command model "mutate" "POST" (incidentPath model incident.id ++ "/posts/" ++ post.id ++ "/derive") (Encode.object [ ( "destinationIncidentId", Encode.string model.relationTarget ) ])
                 _ -> ( model, Cmd.none )
         AddStructured -> addStructured model
         DecideItem item status -> incidentCommand model "PATCH" ("/decisions/" ++ item.id) (Encode.object [ ( "status", Encode.string status ) ])
@@ -182,7 +236,9 @@ publish model =
                 ChannelActive c -> channelPath model c.id ++ "/posts"
                 None -> ""
             replyFields = case model.replyTo of
-                Just post -> [ ( "replyToPostId", Encode.string post.id ) ]
+                Just post ->
+                    [ ( "replyToPostId", Encode.string post.id ) ]
+                        ++ (if model.replyToBlockId == "" then [] else [ ( "replyToBlockId", Encode.string model.replyToBlockId ) ])
                 Nothing -> []
             block =
                 Encode.object
@@ -199,7 +255,7 @@ publish model =
                     Just post -> ( "PUT", path ++ "/" ++ post.id )
                     Nothing -> ( "POST", path )
         in
-        if path == "" then ( model, Cmd.none ) else command { model | draft = "", replyTo = Nothing, editing = Nothing } "post" method target payload
+        if path == "" then ( model, Cmd.none ) else command { model | draft = "", replyTo = Nothing, replyToBlockId = "", editing = Nothing } "post" method target payload
 
 
 addStructured : Model -> ( Model, Cmd Msg )
@@ -264,11 +320,23 @@ handleResponse raw model =
                 "collections" -> case Decode.decodeValue (Decode.field "items" (Decode.list contextCollectionDecoder)) response.body of
                     Ok items -> ( { model | collections = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
+                "contextPreview" -> case Decode.decodeValue contextCollectionDecoder response.body of
+                    Ok item -> ( { model | recipePreview = Just item, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
+                "knowledgeSearch" -> case Decode.decodeValue (Decode.field "items" (Decode.list knowledgeSearchDecoder)) response.body of
+                    Ok items -> ( { model | searchResults = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
                 "similar" -> case Decode.decodeValue (Decode.field "items" (Decode.list similarIncidentDecoder)) response.body of
                     Ok items -> ( { model | similar = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
                 "posts" -> case Decode.decodeValue (Decode.field "items" (Decode.list postDecoder)) response.body of
                     Ok items -> ( { model | posts = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
+                "memberships" -> case Decode.decodeValue (Decode.field "items" (Decode.list membershipDecoder)) response.body of
+                    Ok items -> ( { model | memberships = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
+                "relationships" -> case Decode.decodeValue (Decode.field "items" (Decode.list relationshipDecoder)) response.body of
+                    Ok items -> ( { model | relationships = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
                 "coordination" -> case Decode.decodeValue coordinationDecoder response.body of
                     Ok items -> ( { model | coordination = items, busy = False }, Cmd.none )
@@ -277,7 +345,7 @@ handleResponse raw model =
                     Ok incident -> ( replaceIncident incident { model | active = IncidentActive incident, summaryDraft = incident.verifiedSummary, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
                 "post" -> ( { model | busy = False }, refreshPosts model )
-                _ -> ( { model | createTitle = "", memberDraft = "", busy = False }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshCoordination model, refreshCollections model, refreshAgents model, refreshWorkflows model, refreshInvestigations model ] )
+                _ -> ( { model | createTitle = "", memberDraft = "", splitTitle = "", busy = False }, Cmd.batch [ getAs "incidents" (workspacePath model ++ "/incidents") model.actor, get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshMemberships model, refreshRelationships model, refreshCoordination model, refreshCollections model, refreshAgents model, refreshWorkflows model, refreshInvestigations model ] )
 
 
 replaceIncident : Incident -> Model -> Model
@@ -290,7 +358,7 @@ errorMessage response = Decode.decodeValue (Decode.field "message" Decode.string
 view : Model -> Html Msg
 view model =
     div [ class "app-shell" ]
-        [ header [ class "top-bar" ] [ h1 [] [ text "Gimme Context" ], span [ class "workspace-name" ] [ text model.workspace ], label [ class "actor" ] [ text "Acting as", input [ value model.actor, onInput SetActor, attribute "aria-label" "Current principal" ] [] ] ]
+        [ header [ class "top-bar" ] [ h1 [] [ text "Gimme Context" ], span [ class "workspace-name" ] [ text model.workspace ], div [ class "actor" ] [ label [] [ span [] [ text "Development principal" ], input [ value model.actorDraft, onInput SetActorDraft, attribute "aria-label" "Development principal", attribute "title" "Temporary local identity sent as X-Principal-ID; not a user profile field" ] [] ], button [ onClick ApplyActor, disabled (String.trim model.actorDraft == "" || String.trim model.actorDraft == model.actor) ] [ text "Switch" ] ] ]
         , case model.error of
             Just message ->
                 div [ class "error-banner", attribute "role" "alert" ] [ text message, button [ onClick DismissError ] [ text "Dismiss" ] ]
@@ -317,6 +385,7 @@ navigation model =
             , label [] [ text "Incident template", select [ value model.templateId, onChange SetTemplate ] (option [ value "" ] [ text "Workspace defaults" ] :: List.map (templateChoice model.templateId) model.templates) ]
             ] else p [ class "create-help" ] [ text "Long-lived discussion and reusable operational knowledge, without an incident lifecycle." ]
         , button [ class "primary-action create-action", onClick (if model.createKind == "incident" then CreateIncident else CreateChannel), disabled (model.busy || String.trim model.createTitle == "") ] [ text (if model.createKind == "incident" then "Create incident" else "Create permanent channel") ]
+        , if model.createKind == "incident" then button [ class "create-action", onClick CreateDetectedIncident, disabled (model.busy || String.trim model.createTitle == "" || List.isEmpty model.agents) ] [ text "Create AI-detected incident" ] else text ""
         ]
 
 administration model =
@@ -389,17 +458,54 @@ content model =
         IncidentActive incident -> div [] [ incidentHeader model incident, div [ class "incident-layout" ] [ feed model, incidentState model incident ] ]
 
 pageHeader title_ kicker action = header [ class "incident-header" ] [ div [] [ p [ class "incident-kicker" ] [ text kicker ], h2 [] [ text title_ ] ], Maybe.withDefault (text "") action ]
-incidentHeader model incident = pageHeader incident.title (incident.severity ++ " · " ++ incident.lifecycle) (Just (button [ class "primary-action", onClick AdvanceLifecycle, disabled (model.busy || nextLifecycle incident.lifecycle == incident.lifecycle) ] [ text (if incident.lifecycle == "resolved" then "Resolved" else "Advance to " ++ nextLifecycle incident.lifecycle) ]))
+incidentHeader model incident =
+    pageHeader incident.title (incident.severity ++ " · " ++ incident.lifecycle ++ (if incident.aiDetected then " · AI detected" else ""))
+        (Just (div [ class "header-actions" ]
+            [ if incident.aiDetected && incident.lifecycle /= "cancelled" then button [ class "danger-action", onClick CancelFalseAlarm, disabled model.busy ] [ text "Cancel false alarm" ] else text ""
+            , button [ class "primary-action", onClick AdvanceLifecycle, disabled (model.busy || nextLifecycle incident.lifecycle == incident.lifecycle) ] [ text (if incident.lifecycle == "resolved" then "Resolved" else "Advance to " ++ nextLifecycle incident.lifecycle) ]
+            ]))
 
 
 feed model = section [ class "feed", attribute "aria-label" "Chronological feed" ] (List.map (viewPost model) model.posts ++ [ composer model ])
 viewPost model post =
-    Html.article [ class "post" ]
-        [ div [ class "post-meta" ] [ span [ class "author" ] [ text post.authorId ], span [] [ text ("revision " ++ String.fromInt post.revision) ], if post.replyToPostId /= "" then span [] [ text "reply" ] else text "" ]
-        , div [] (List.map viewBlock post.blocks)
-        , div [] [ button [ class "text-action", onClick (SetReply post) ] [ text "Reply" ], if post.authorId == model.actor then button [ class "text-action edit-action", onClick (EditPost post) ] [ text "Edit" ] else text "" ]
+    Html.article [ class (if post.replyToPostId == "" then "post" else "post post-reply") ]
+        [ div [ class "post-meta" ] [ span [ class "author" ] [ text post.authorId ], span [] [ text ("revision " ++ String.fromInt post.revision) ] ]
+        , replyContext model post
+        , div [] (List.map (viewBlock post) post.blocks)
+        , div [] [ button [ class "text-action", onClick (SetReply post "") ] [ text "Reply to post" ], if post.authorId == model.actor then button [ class "text-action edit-action", onClick (EditPost post) ] [ text "Edit" ] else text "", repostAction model post ]
         ]
-viewBlock block = div [ class ("block block-" ++ block.kind) ] [ span [ class "block-kind" ] [ text block.kind ], p [] [ text block.body ] ]
+repostAction model post =
+    case model.active of
+        IncidentActive _ -> button [ class "text-action", onClick (DerivePost post), disabled (model.relationTarget == "") ] [ text "Repost to selected incident" ]
+        _ -> text ""
+replyContext model post =
+    if post.replyToPostId == "" then
+        text ""
+    else
+        case List.filter (\candidate -> candidate.id == post.replyToPostId) model.posts |> List.head of
+            Just parent ->
+                div [ class "reply-context" ]
+                    [ span [] [ text (if post.replyToBlockId == "" then "Reply to " else "Reply to block by ") ]
+                    , Html.strong [] [ text parent.authorId ]
+                    , span [] [ text (": " ++ postExcerpt parent post.replyToBlockId) ]
+                    ]
+
+            Nothing ->
+                div [ class "reply-context" ] [ text "Reply to an earlier post" ]
+
+postExcerpt post blockId =
+    let
+        candidates =
+            if blockId == "" then post.blocks else List.filter (\block -> block.id == blockId) post.blocks
+    in
+    case candidates of
+        first :: _ ->
+            if String.length first.body > 90 then String.left 90 first.body ++ "…" else first.body
+
+        [] ->
+            "Referenced content"
+
+viewBlock post block = div [ class ("block block-" ++ block.kind) ] [ span [ class "block-kind" ] [ text block.kind ], p [] [ text block.body ], button [ class "text-action block-reply-action", onClick (SetReply post block.id) ] [ text "Reply to block" ] ]
 
 composer model =
     div [ class "composer" ]
@@ -410,7 +516,7 @@ composer model =
             Nothing ->
                 case model.replyTo of
                     Just post ->
-                        div [ class "replying" ] [ text ("Replying to " ++ post.authorId), button [ onClick CancelReply ] [ text "Cancel" ] ]
+                        div [ class "replying" ] [ text ("Replying to " ++ (if model.replyToBlockId == "" then "post by " else "block by ") ++ post.authorId), button [ onClick CancelReply ] [ text "Cancel" ] ]
 
                     Nothing ->
                         text ""
@@ -420,10 +526,20 @@ composer model =
 
 incidentState model incident =
     aside [ class "state-panel" ]
-        [ h2 [] [ text "Incident state" ], stateField "Owner" incident.ownerId, stateField "Scope" (String.join ", " incident.scope)
+        [ h2 [] [ text "Incident state" ], stateField "Owner" incident.ownerId, stateField "Scope" (String.join ", " incident.scope), stateField "Configuration" incident.configuration
+        , select [ value model.templateId, onChange SetTemplate, attribute "aria-label" "Incident configuration template" ] (option [ value "" ] [ text "Select newer template" ] :: List.map (templateChoice model.templateId) model.templates)
+        , button [ onClick MigrateConfiguration, disabled (model.busy || model.templateId == "") ] [ text "Migrate configuration" ]
         , h2 [] [ text "Verified summary" ], textarea [ value model.summaryDraft, onInput SetSummary, placeholder "Outcome and verified impact" ] [], button [ onClick SaveSummary, disabled model.busy ] [ text "Save summary" ]
         , h2 [] [ text "Closure checklist" ], div [] (List.map (checkItem model) incident.closureChecklist)
-        , h2 [] [ text "Participants and ownership" ], input [ value model.memberDraft, onInput SetMember, placeholder "Principal ID", attribute "aria-label" "New participant" ] [], select [ value model.memberRole, onChange SetMemberRole, attribute "aria-label" "Participant role" ] (List.map (choice model.memberRole) [ "participant", "editor", "viewer" ]), button [ onClick AddMember, disabled model.busy ] [ text "Add participant" ], button [ onClick TransferOwnership, disabled model.busy ] [ text "Transfer ownership" ]
+        , h2 [] [ text "Participants and ownership" ], input [ value model.memberDraft, onInput SetMember, placeholder "Principal ID", attribute "aria-label" "New participant" ] [], select [ value model.memberRole, onChange SetMemberRole, attribute "aria-label" "Participant role" ] (List.map (choice model.memberRole) [ "participant", "editor", "viewer" ]), button [ onClick AddMember, disabled (model.busy || String.trim model.memberDraft == "") ] [ text "Add participant" ], button [ onClick TransferOwnership, disabled (model.busy || String.trim model.memberDraft == "") ] [ text "Transfer ownership" ]
+        , div [ class "member-list" ] (List.map (viewMembership model incident) model.memberships)
+        , h2 [] [ text "Related incidents" ]
+        , select [ value model.relationTarget, onChange SetRelationTarget, attribute "aria-label" "Related incident" ] (option [ value "" ] [ text "Select visible incident" ] :: List.map (incidentRelationChoice incident) model.incidents)
+        , select [ value model.relationKind, onChange SetRelationKind, attribute "aria-label" "Relationship type" ] (List.map (choice model.relationKind) [ "related", "duplicate", "caused-by", "follow-up-to", "recurrence-of" ])
+        , button [ onClick RelateIncident, disabled (model.busy || model.relationTarget == "") ] [ text "Link incident" ]
+        , div [ class "relationship-list" ] (List.map (viewRelationship model incident) model.relationships)
+        , input [ value model.splitTitle, onInput SetSplitTitle, placeholder "New incident title", attribute "aria-label" "Split incident title" ] []
+        , button [ onClick SplitIncident, disabled (model.busy || String.trim model.splitTitle == "" || List.isEmpty model.posts) ] [ text "Split feed into incident" ]
         , h2 [] [ text "Structured coordination" ], select [ value model.structuredType, onChange SetStructuredType, attribute "aria-label" "Coordination type" ] (List.map (choice model.structuredType) [ "fact", "decision", "action", "poll" ]), textarea [ value model.structuredDraft, onInput SetStructured, placeholder "Statement, task, or question" ] [], button [ onClick AddStructured, disabled model.busy ] [ text "Add" ]
         , contextPanel model
         , agentPanel model
@@ -431,6 +547,28 @@ incidentState model incident =
         , investigationPanel model
         , coordinationView model
         ]
+
+viewMembership model incident member =
+    div [ class "member-row" ]
+        [ div [] [ Html.strong [] [ text member.principalId ], span [] [ text (" · " ++ member.role ++ " · " ++ member.status) ] ]
+        , if member.status /= "active" || member.principalId == incident.ownerId then
+            text ""
+          else
+            div []
+                [ button [ class "compact-action", onClick (UpdateMember member (if member.role == "viewer" then "participant" else "viewer") False), disabled model.busy ] [ text (if member.role == "viewer" then "Make participant" else "Make viewer") ]
+                , button [ class "danger-action compact-action", onClick (UpdateMember member member.role True), disabled model.busy ] [ text "Revoke" ]
+                ]
+        ]
+
+incidentRelationChoice active incident =
+    if active.id == incident.id then option [ value incident.id, disabled True ] [ text incident.title ] else option [ value incident.id ] [ text incident.title ]
+
+viewRelationship model active relationship =
+    let
+        otherId = if relationship.sourceIncidentId == active.id then relationship.targetIncidentId else relationship.sourceIncidentId
+        title_ = model.incidents |> List.filter (\item -> item.id == otherId) |> List.head |> Maybe.map .title |> Maybe.withDefault "Visible incident"
+    in
+    div [ class "relationship-row" ] [ Html.strong [] [ text relationship.kind ], span [] [ text (" · " ++ title_) ] ]
 
 investigationPanel model =
     div [ class "investigation-panel" ]
@@ -448,8 +586,26 @@ viewInvestigation item =
         , case item.pullRequest of
             Just pr -> p [] [ text ("GitHub pull request #" ++ String.fromInt pr.number ++ " · " ++ pr.url) ]
             Nothing -> text ""
-        , button [ onClick (DestroyInvestigation item), disabled (item.status == "destroyed") ] [ text "Destroy sandbox" ]
+        , div [ class "investigation-actions" ]
+            [ button [ onClick (ExecuteInvestigation item "diagnostic"), disabled (item.status == "destroyed" || hasEvidenceKind "diagnostic" item) ] [ text "Reproduce defect" ]
+            , button [ onClick (PrepareInvestigationPatch item), disabled (item.status /= "investigating" || not (hasEvidenceKind "diagnostic" item)) ] [ text "Authorise patch workspace" ]
+            , button [ onClick (ExecuteInvestigation item "patch"), disabled (item.status /= "patching" || hasEvidenceKind "patch" item) ] [ text "Apply patch" ]
+            , button [ onClick (ExecuteInvestigation item "test"), disabled (item.status /= "patching" || not (hasEvidenceKind "patch" item) || hasEvidenceKind "test" item) ] [ text "Verify patch" ]
+            , button [ onClick (ExecuteInvestigation item "browser"), disabled (item.status /= "patching" || not (hasEvidenceKind "test" item) || hasEvidenceKind "browser" item) ] [ text "Capture staging evidence" ]
+            , button [ class "primary-action", onClick (CreateInvestigationPR item), disabled (item.status /= "patching" || not (hasEvidenceKind "patch" item) || not (hasEvidenceKind "test" item)) ] [ text "Create traceable pull request" ]
+            , button [ class "danger-action", onClick (DestroyInvestigation item), disabled (item.status == "destroyed") ] [ text "Destroy sandbox" ]
+            ]
         ]
+
+hasEvidenceKind kind item = List.any (\e -> e.kind == kind) item.evidence
+
+investigationSummary kind =
+    case kind of
+        "diagnostic" -> "Reproduced the reported defect"
+        "patch" -> "Applied the isolated remediation"
+        "test" -> "Regression verification passed"
+        "browser" -> "Captured allowed staging evidence"
+        _ -> "Investigation evidence"
 
 workflowPanel model =
     div [ class "workflow-panel" ]
@@ -499,8 +655,15 @@ contextPanel model =
     div [ class "context-panel" ]
         [ h2 [] [ text "Operational context" ]
         , select [ value model.recipeId, onChange SetRecipe, attribute "aria-label" "Context recipe" ] (option [ value "" ] [ text "Select recipe" ] :: List.map contextRecipeChoice model.recipes)
-        , button [ onClick CollectContext, disabled (model.busy || model.recipeId == "") ] [ text "Collect context" ]
+        , div [ class "context-actions" ] [ button [ onClick PreviewContext, disabled (model.busy || model.recipeId == "") ] [ text "Preview recipe" ], button [ onClick CollectContext, disabled (model.busy || model.recipeId == "") ] [ text "Collect context" ] ]
+        , case model.recipePreview of
+            Just preview -> div [ class "context-preview" ] [ Html.strong [] [ text "Preview only — not published" ], p [] [ text (String.fromInt (List.length preview.snapshots) ++ " planned operations") ], div [] (List.map (\snapshot -> p [] [ text (snapshot.source ++ ": " ++ snapshot.query) ]) preview.snapshots) ]
+            Nothing -> text ""
         , div [] (List.map viewCollection model.collections)
+        , h2 [] [ text "Search platform knowledge" ]
+        , input [ value model.searchQuery, onInput SetSearchQuery, placeholder "Search visible incident knowledge", attribute "aria-label" "Knowledge search" ] []
+        , button [ onClick SearchKnowledge, disabled (model.busy || String.trim model.searchQuery == "") ] [ text "Search knowledge" ]
+        , div [ class "search-results" ] (List.map (\item -> div [ class "search-result" ] [ Html.strong [] [ text (item.kind ++ " · " ++ item.title) ], p [] [ text item.excerpt ] ]) model.searchResults)
         , h2 [] [ text "Similar incidents" ]
         , div [] (List.map (\item -> p [ class "similar-incident" ] [ text (item.incident.severity ++ " " ++ item.incident.title ++ " · score " ++ String.fromInt item.score) ]) model.similar)
         ]
@@ -557,36 +720,62 @@ emptyCoordination = Coordination [] [] [] [] []
 splitScope value_ = value_ |> String.split "," |> List.map String.trim |> List.filter (\item -> item /= "")
 refreshPosts model =
     case model.active of
-        IncidentActive i -> get "posts" (incidentPath model i.id ++ "/posts")
+        IncidentActive i -> getAs "posts" (incidentPath model i.id ++ "/posts") model.actor
         ChannelActive c -> get "posts" (channelPath model c.id ++ "/posts")
         None -> Cmd.none
 refreshCoordination model =
     case model.active of
-        IncidentActive i -> get "coordination" (incidentPath model i.id ++ "/coordination")
+        IncidentActive i -> getAs "coordination" (incidentPath model i.id ++ "/coordination") model.actor
+        _ -> Cmd.none
+refreshMemberships model =
+    case model.active of
+        IncidentActive i -> getAs "memberships" (incidentPath model i.id ++ "/members") model.actor
+        _ -> Cmd.none
+refreshRelationships model =
+    case model.active of
+        IncidentActive i -> getAs "relationships" (incidentPath model i.id ++ "/relationships") model.actor
         _ -> Cmd.none
 refreshCollections model =
     case model.active of
-        IncidentActive i -> get "collections" (incidentPath model i.id ++ "/context-collections")
+        IncidentActive i -> getAs "collections" (incidentPath model i.id ++ "/context-collections") model.actor
         _ -> Cmd.none
 refreshAgents model =
     case model.active of
-        IncidentActive i -> Cmd.batch [ get "agentRuns" (incidentPath model i.id ++ "/agent-runs"), get "aiProposals" (incidentPath model i.id ++ "/ai-proposals") ]
+        IncidentActive i -> Cmd.batch [ getAs "agentRuns" (incidentPath model i.id ++ "/agent-runs") model.actor, getAs "aiProposals" (incidentPath model i.id ++ "/ai-proposals") model.actor ]
         _ -> Cmd.none
 refreshWorkflows model =
     case model.active of
-        IncidentActive i -> get "workflowRuns" (incidentPath model i.id ++ "/workflow-runs")
+        IncidentActive i -> getAs "workflowRuns" (incidentPath model i.id ++ "/workflow-runs") model.actor
         _ -> Cmd.none
 refreshInvestigations model =
     case model.active of
-        IncidentActive i -> get "investigations" (incidentPath model i.id ++ "/investigations")
+        IncidentActive i -> getAs "investigations" (incidentPath model i.id ++ "/investigations") model.actor
         _ -> Cmd.none
 
 responseDecoder = Decode.map4 Response (Decode.field "tag" Decode.string) (Decode.field "ok" Decode.bool) (Decode.field "status" Decode.int) (Decode.field "body" Decode.value)
-incidentDecoder = Decode.map8 Incident (Decode.field "id" Decode.string) (Decode.field "title" Decode.string) (Decode.field "ownerId" Decode.string) (Decode.field "severity" Decode.string) (Decode.field "lifecycle" Decode.string) (Decode.field "scope" (Decode.list Decode.string)) (Decode.oneOf [ Decode.field "verifiedSummary" Decode.string, Decode.succeed "" ]) (Decode.field "closureChecklist" (Decode.list checklistDecoder))
+incidentDecoder =
+    Decode.map8
+        (\id title ownerId severity lifecycle scope verifiedSummary details ->
+            { id = id, title = title, ownerId = ownerId, severity = severity, lifecycle = lifecycle, scope = scope, verifiedSummary = verifiedSummary, closureChecklist = details.checklist, aiDetected = details.detected, configuration = details.configuration }
+        )
+        (Decode.field "id" Decode.string)
+        (Decode.field "title" Decode.string)
+        (Decode.field "ownerId" Decode.string)
+        (Decode.field "severity" Decode.string)
+        (Decode.field "lifecycle" Decode.string)
+        (Decode.field "scope" (Decode.list Decode.string))
+        (Decode.oneOf [ Decode.field "verifiedSummary" Decode.string, Decode.succeed "" ])
+        (Decode.map3 (\checklist detected configuration -> { checklist = checklist, detected = detected, configuration = configuration })
+            (Decode.field "closureChecklist" (Decode.list checklistDecoder))
+            (Decode.oneOf [ Decode.field "detection" Decode.value |> Decode.map (\_ -> True), Decode.succeed False ])
+            (Decode.map2 (\snapshot historyCount -> snapshot ++ " · " ++ String.fromInt historyCount ++ " prior snapshots")
+                (Decode.oneOf [ Decode.field "templateSnapshot" (Decode.map2 (\name version -> name ++ " v" ++ String.fromInt version) (Decode.field "name" Decode.string) (Decode.field "version" Decode.int)), Decode.succeed "Workspace defaults" ])
+                (Decode.oneOf [ Decode.field "configurationHistory" (Decode.list Decode.value) |> Decode.map List.length, Decode.succeed 0 ]))
+        )
 checklistDecoder = Decode.map3 ChecklistItem (Decode.field "id" Decode.string) (Decode.field "label" Decode.string) (Decode.field "completed" Decode.bool)
 channelDecoder = Decode.map3 Channel (Decode.field "id" Decode.string) (Decode.field "title" Decode.string) (Decode.oneOf [ Decode.field "description" Decode.string, Decode.succeed "" ])
 templateDecoder = Decode.map3 Template (Decode.field "id" Decode.string) (Decode.field "name" Decode.string) (Decode.field "version" Decode.int)
-postDecoder = Decode.map6 Post (Decode.field "id" Decode.string) (Decode.field "authorId" Decode.string) (Decode.field "revision" Decode.int) (Decode.oneOf [ Decode.field "replyToPostId" Decode.string, Decode.succeed "" ]) (Decode.field "blocks" (Decode.list blockDecoder)) (Decode.field "createdAt" Decode.string)
+postDecoder = Decode.map7 Post (Decode.field "id" Decode.string) (Decode.field "authorId" Decode.string) (Decode.field "revision" Decode.int) (Decode.oneOf [ Decode.field "replyToPostId" Decode.string, Decode.succeed "" ]) (Decode.oneOf [ Decode.field "replyToBlockId" Decode.string, Decode.succeed "" ]) (Decode.field "blocks" (Decode.list blockDecoder)) (Decode.field "createdAt" Decode.string)
 blockDecoder = Decode.map3 Block (Decode.field "id" Decode.string) (Decode.field "type" Decode.string) (Decode.oneOf [ Decode.at [ "payload", "text" ] Decode.string, Decode.at [ "payload", "label" ] Decode.string, Decode.succeed "Structured block" ])
 coordinationDecoder = Decode.map5 Coordination (Decode.field "facts" (Decode.list factDecoder)) (Decode.field "decisions" (Decode.list decisionDecoder)) (Decode.field "actions" (Decode.list actionDecoder)) (Decode.field "polls" (Decode.list pollDecoder)) (Decode.field "approvals" (Decode.list approvalDecoder))
 factDecoder = Decode.map3 Fact (Decode.field "id" Decode.string) (Decode.field "statement" Decode.string) (Decode.field "state" Decode.string)
@@ -595,6 +784,9 @@ actionDecoder = Decode.map3 Action (Decode.field "id" Decode.string) (Decode.fie
 pollDecoder = Decode.map3 Poll (Decode.field "id" Decode.string) (Decode.field "question" Decode.string) (Decode.field "options" (Decode.list pollOptionDecoder))
 pollOptionDecoder = Decode.map2 PollOption (Decode.field "id" Decode.string) (Decode.field "label" Decode.string)
 approvalDecoder = Decode.map3 Approval (Decode.field "id" Decode.string) (Decode.field "actionId" Decode.string) (Decode.field "outcome" Decode.string)
+membershipDecoder = Decode.map3 Membership (Decode.field "principalId" Decode.string) (Decode.field "role" Decode.string) (Decode.field "status" Decode.string)
+relationshipDecoder = Decode.map4 IncidentRelationship (Decode.field "id" Decode.string) (Decode.field "sourceIncidentId" Decode.string) (Decode.field "targetIncidentId" Decode.string) (Decode.field "kind" Decode.string)
+knowledgeSearchDecoder = Decode.map4 KnowledgeSearchResult (Decode.field "kind" Decode.string) (Decode.field "incidentId" Decode.string) (Decode.field "title" Decode.string) (Decode.field "excerpt" Decode.string)
 contextRecipeDecoder = Decode.map3 ContextRecipe (Decode.field "id" Decode.string) (Decode.field "name" Decode.string) (Decode.field "version" Decode.int)
 contextCollectionDecoder = Decode.map4 ContextCollection (Decode.field "id" Decode.string) (Decode.field "status" Decode.string) (Decode.field "snapshots" (Decode.list contextSnapshotDecoder)) (Decode.field "failures" (Decode.list retrievalFailureDecoder))
 contextSnapshotDecoder = Decode.map3 ContextSnapshot (Decode.field "source" Decode.string) (Decode.field "query" Decode.string) (Decode.field "retrievedAt" Decode.string)

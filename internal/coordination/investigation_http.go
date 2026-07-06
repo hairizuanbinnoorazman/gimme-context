@@ -17,6 +17,9 @@ func registerInvestigationHTTP(mux *http.ServeMux, store *Store) {
 	})
 	base := "/api/v1/workspaces/{workspaceID}/incidents/{incidentID}/investigations"
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.Investigations(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})

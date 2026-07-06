@@ -7,6 +7,7 @@ services:
       target: api
     environment:
       PORT: "8080"
+      DEMO_MODE: "true"
   worker:
     build:
       context: .

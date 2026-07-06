@@ -68,7 +68,7 @@ func Register(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, item, err)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"items": store.ListIncidents(r.PathValue("workspaceID"))})
+		writeJSON(w, http.StatusOK, map[string]any{"items": store.ListIncidentsForPrincipal(r.PathValue("workspaceID"), actor(r))})
 	})
 	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
@@ -91,7 +91,32 @@ func Register(mux *http.ServeMux, store *Store) {
 		}
 		respond(w, http.StatusCreated, incident, err)
 	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/ai-incident-detections", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			DetectorID         string   `json:"detectorId"`
+			Title              string   `json:"title"`
+			Severity           string   `json:"severity"`
+			Trigger            string   `json:"trigger"`
+			Rule               string   `json:"rule"`
+			Confidence         float64  `json:"confidence"`
+			ConfidenceGate     float64  `json:"confidenceGate"`
+			MinimumSeverity    string   `json:"minimumSeverity"`
+			SupportingEvidence []string `json:"supportingEvidence"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.DetectIncident(r.PathValue("workspaceID"), actor(r), input.DetectorID, input.Title, input.Severity, input.Trigger, input.Rule, input.Confidence, input.ConfidenceGate, input.MinimumSeverity, input.SupportingEvidence)
+		status := http.StatusOK
+		if item.Created {
+			status = http.StatusCreated
+		}
+		respond(w, status, item, err)
+	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		incident, err := store.Incident(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, incident, err)
 	})
@@ -107,7 +132,23 @@ func Register(mux *http.ServeMux, store *Store) {
 		incident, err := store.UpdateIncident(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.Lifecycle, input.Severity, input.OwnerID)
 		respond(w, http.StatusOK, incident, err)
 	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/configuration-migrations", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			TemplateID       string   `json:"templateId"`
+			TemplateVersion  int      `json:"templateVersion"`
+			SeverityOverride string   `json:"severityOverride"`
+			ScopeOverride    []string `json:"scopeOverride"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.MigrateIncidentTemplate(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.TemplateID, input.TemplateVersion, input.SeverityOverride, input.ScopeOverride)
+		respond(w, http.StatusOK, item, err)
+	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/members", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.Memberships(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
@@ -143,6 +184,36 @@ func Register(mux *http.ServeMux, store *Store) {
 		item, err := store.TransferOwnership(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.NewOwnerID)
 		respond(w, http.StatusOK, item, err)
 	})
+	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/relationships", func(w http.ResponseWriter, r *http.Request) {
+		items, err := store.IncidentRelationships(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r))
+		respond(w, http.StatusOK, map[string]any{"items": items}, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/relationships", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			TargetIncidentID string `json:"targetIncidentId"`
+			Kind             string `json:"kind"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.RelateIncidents(r.PathValue("workspaceID"), r.PathValue("incidentID"), input.TargetIncidentID, actor(r), input.Kind)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/split", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Title   string   `json:"title"`
+			PostIDs []string `json:"postIds"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.SplitIncident(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r), input.Title, input.PostIDs)
+		respond(w, http.StatusCreated, item, err)
+	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/cancel-false-alarm", func(w http.ResponseWriter, r *http.Request) {
+		item, err := store.CancelDetectedIncident(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r))
+		respond(w, http.StatusOK, item, err)
+	})
 	mux.HandleFunc("PATCH /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/resolution", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			VerifiedSummary string `json:"verifiedSummary"`
@@ -156,6 +227,9 @@ func Register(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, incident, err)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/posts", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		posts, err := store.Feed(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": posts}, err)
 	})
@@ -181,12 +255,28 @@ func Register(mux *http.ServeMux, store *Store) {
 		post, err := store.revisePost(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("postID"), actor(r), input.Blocks)
 		respond(w, http.StatusOK, post, err)
 	})
+	mux.HandleFunc("POST /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/posts/{postID}/derive", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			DestinationIncidentID string `json:"destinationIncidentId"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		item, err := store.DerivePost(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("postID"), input.DestinationIncidentID, actor(r))
+		respond(w, http.StatusCreated, item, err)
+	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/posts/{postID}/revisions", postHistoryHandler(store))
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/facts", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.Facts(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/coordination", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		workspaceID, incidentID := r.PathValue("workspaceID"), r.PathValue("incidentID")
 		facts, err := store.Facts(workspaceID, incidentID)
 		if err != nil {
@@ -221,6 +311,9 @@ func Register(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, fact, err)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.Decisions(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
@@ -247,6 +340,9 @@ func Register(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, decision, err)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/actions", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.Actions(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
@@ -275,6 +371,9 @@ func Register(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, item, err)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/polls", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.Polls(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
@@ -304,6 +403,9 @@ func Register(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, item, err)
 	})
 	mux.HandleFunc("GET /api/v1/workspaces/{workspaceID}/incidents/{incidentID}/approvals", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.Approvals(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
@@ -338,6 +440,9 @@ func Register(mux *http.ServeMux, store *Store) {
 
 func postHistoryHandler(store *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("incidentID") != "" && !requireIncidentRead(w, r, store) {
+			return
+		}
 		channelID := r.PathValue("incidentID")
 		if channelID == "" {
 			channelID = r.PathValue("channelID")
@@ -345,6 +450,15 @@ func postHistoryHandler(store *Store) http.HandlerFunc {
 		items, err := store.PostHistory(r.PathValue("workspaceID"), channelID, r.PathValue("postID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	}
+}
+
+func requireIncidentRead(w http.ResponseWriter, r *http.Request, store *Store) bool {
+	err := store.CanReadIncident(r.PathValue("workspaceID"), r.PathValue("incidentID"), actor(r))
+	if err != nil {
+		respond(w, http.StatusOK, nil, err)
+		return false
+	}
+	return true
 }
 
 func templateVersionHandler(store *Store, existing bool) http.HandlerFunc {

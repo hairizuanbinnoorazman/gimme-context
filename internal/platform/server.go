@@ -22,6 +22,11 @@ func HandlerWithStore(ready func() bool, store *coordination.Store) http.Handler
 		Retries:    2,
 	})
 	store.SetModelGateway(coordination.VertexGateway{Endpoint: os.Getenv("VERTEX_AI_ENDPOINT"), Token: os.Getenv("VERTEX_AI_ACCESS_TOKEN")})
+	if os.Getenv("DEMO_MODE") == "true" {
+		if err := coordination.EnableDemoWorkspace(store, "acme"); err != nil {
+			panic("configure demo workspace: " + err.Error())
+		}
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", health(http.StatusOK, "live"))
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {

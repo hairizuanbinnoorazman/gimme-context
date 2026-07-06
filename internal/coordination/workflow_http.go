@@ -22,6 +22,9 @@ func registerWorkflowHTTP(mux *http.ServeMux, store *Store) {
 	})
 	incidentBase := "/api/v1/workspaces/{workspaceID}/incidents/{incidentID}/workflow-runs"
 	mux.HandleFunc("GET "+incidentBase, func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		items, err := store.WorkflowRuns(r.PathValue("workspaceID"), r.PathValue("incidentID"))
 		respond(w, http.StatusOK, map[string]any{"items": items}, err)
 	})
@@ -38,6 +41,9 @@ func registerWorkflowHTTP(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusCreated, item, err)
 	})
 	mux.HandleFunc("GET "+incidentBase+"/{runID}", func(w http.ResponseWriter, r *http.Request) {
+		if !requireIncidentRead(w, r, store) {
+			return
+		}
 		item, err := store.WorkflowProjection(r.PathValue("workspaceID"), r.PathValue("incidentID"), r.PathValue("runID"))
 		respond(w, http.StatusOK, item, err)
 	})

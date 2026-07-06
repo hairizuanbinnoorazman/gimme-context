@@ -179,6 +179,46 @@ func TestPostsRepliesAndRevisions(t *testing.T) {
 	}
 }
 
+func TestRelateAndSplitIncidentsPreserveBoundariesAndProvenance(t *testing.T) {
+	store := NewStore()
+	source, _ := store.CreateIncident("workspace-a", "alice", "Combined failure", "", "SEV-2", []string{"checkout"})
+	target, _ := store.CreateIncident("workspace-a", "alice", "Known recurrence", "", "SEV-3", nil)
+	parent, err := store.AddPost("workspace-a", source.ID, "alice", "", "", []Block{{Type: "log", Payload: map[string]any{"text": "first failure"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := store.AddPost("workspace-a", source.ID, "alice", parent.ID, parent.Blocks[0].ID, []Block{{Type: "markdown", Payload: map[string]any{"text": "confirmed"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = store.RelateIncidents("workspace-a", source.ID, target.ID, "alice", "recurrence-of"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.RelateIncidents("workspace-a", source.ID, target.ID, "alice", "recurrence-of"); err != ErrConflict {
+		t.Fatalf("duplicate relation = %v", err)
+	}
+	result, err := store.SplitIncident("workspace-a", source.ID, "alice", "Checkout sub-incident", []string{parent.ID, reply.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.CopiedPosts) != 2 || result.Relationship.Kind != "parent-of" {
+		t.Fatalf("split = %#v", result)
+	}
+	if result.CopiedPosts[0].DerivedFromPostID != parent.ID || result.CopiedPosts[1].DerivedFromPostID != reply.ID {
+		t.Fatal("split provenance missing")
+	}
+	if result.CopiedPosts[1].ReplyToPostID != result.CopiedPosts[0].ID || result.CopiedPosts[1].ReplyToBlockID != result.CopiedPosts[0].Blocks[0].ID {
+		t.Fatal("reply lineage was not remapped")
+	}
+	if err = store.CanReadIncident("workspace-a", result.Incident.ID, "bob"); err != ErrForbidden {
+		t.Fatalf("split leaked access: %v", err)
+	}
+	if _, err = store.RelateIncidents("workspace-a", source.ID, result.Incident.ID, "bob", "related"); err != ErrForbidden {
+		t.Fatalf("non-editor relation = %v", err)
+	}
+}
+
 func TestRejectsUnknownBlockType(t *testing.T) {
 	store := NewStore()
 	incident, _ := store.CreateIncident("workspace-a", "alice", "API errors", "", "SEV-2", nil)
@@ -342,6 +382,35 @@ func TestTemplateVersionsAndIncidentSnapshotAreImmutable(t *testing.T) {
 	latest, _ := store.Template("workspace-a", v1.ID, 0)
 	if latest.Version != 2 {
 		t.Fatalf("latest version = %d", latest.Version)
+	}
+}
+
+func TestIncidentConfigurationMigrationRetainsPriorSnapshotAndAppliesOverrides(t *testing.T) {
+	s := NewStore()
+	v1, err := s.CreateTemplateVersion("w", "admin", "", "Service incident", "v1", "SEV-3", []string{"service"}, []ChecklistItem{{ID: "verify", Label: "Verify", Completed: false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	incident, err := s.CreateIncidentFromTemplate("w", "alice", v1.ID, 1, "Outage", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := s.CreateTemplateVersion("w", "admin", v1.ID, "Service incident", "v2", "SEV-2", []string{"service", "production"}, []ChecklistItem{{ID: "recover", Label: "Recovery verified", Completed: false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := s.MigrateIncidentTemplate("w", incident.ID, "alice", v2.ID, 2, "SEV-1", []string{"checkout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.TemplateSnapshot == nil || migrated.TemplateSnapshot.Version != 2 || migrated.Severity != "SEV-1" || len(migrated.Scope) != 1 || migrated.Scope[0] != "checkout" {
+		t.Fatalf("migration = %#v", migrated)
+	}
+	if len(migrated.ConfigurationHistory) != 1 || migrated.ConfigurationHistory[0].Version != 1 {
+		t.Fatalf("history = %#v", migrated.ConfigurationHistory)
+	}
+	if _, err = s.MigrateIncidentTemplate("w", incident.ID, "bob", v2.ID, 2, "", nil); err != ErrForbidden {
+		t.Fatalf("unauthorised migration = %v", err)
 	}
 }
 
