@@ -197,6 +197,12 @@ Implemented acceptance surface:
 
 ### M6: Knowledge feedback and pilot evaluation
 
+Status: complete for the M6 functional slice. Versioned knowledge, runbook
+simulation, reviewed archival, workspace audit export, and baseline-comparative
+pilot analytics are implemented against the in-memory contract store. Durable
+artifact persistence and production analytics warehousing remain M0 deployment
+dependencies.
+
 - Versioned artifacts and promotion workflow
 - Runbook editing and simulation in permanent channels
 - AI-proposed artifact updates
@@ -206,6 +212,20 @@ Implemented acceptance surface:
 
 Exit condition: closed incidents produce accepted reusable knowledge and the
 pilot demonstrates measurable improvement over its prior process.
+
+Implemented acceptance surface:
+
+- Immutable reusable artifact versions for runbooks, known issues, ownership,
+  escalation, saved queries, decisions, and integration recipes
+- Incident- and evidence-linked human or AI proposals, with completed agent-run
+  attribution and explicit human promotion into permanent channels
+- Side-effect-free runbook simulation with recorded inputs, result, actor, and time
+- Archival gated on reviewed state and accepted reusable knowledge
+- Time-filtered, workspace-isolated audit export
+- Configurable prior-process baselines and per-incident/aggregate comparison of
+  time to initial context and first accepted decision
+- Backend acceptance coverage for promotion gates, immutable versions, archival,
+  audit isolation, and pilot improvement calculations
 
 ## 4. Testing strategy
 

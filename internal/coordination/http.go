@@ -333,6 +333,7 @@ func Register(mux *http.ServeMux, store *Store) {
 	registerAgentHTTP(mux, store)
 	registerWorkflowHTTP(mux, store)
 	registerInvestigationHTTP(mux, store)
+	registerKnowledgeHTTP(mux, store)
 }
 
 func postHistoryHandler(store *Store) http.HandlerFunc {

@@ -734,6 +734,62 @@ paths:
       operationId: destroyInvestigationSandbox
       parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
       responses: { "200": { description: Sandbox destroyed } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}/artifacts:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: listArtifacts
+      responses:
+        "200": { description: Latest artifact versions, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Artifact" } } } } } } }
+    post:
+      operationId: proposeArtifact
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ArtifactInput" } } } }
+      responses: { "201": { description: Artifact proposed, content: { application/json: { schema: { $ref: "#/components/schemas/Artifact" } } } } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}/artifacts/{artifactId}/versions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }, { name: artifactId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: createArtifactVersion
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ArtifactInput" } } } }
+      responses: { "201": { description: Immutable version proposed, content: { application/json: { schema: { $ref: "#/components/schemas/Artifact" } } } } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}/artifacts/{artifactId}/promotions:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }, { name: artifactId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: promoteArtifact
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { version: { type: integer, minimum: 1 } } } } } }
+      responses: { "200": { description: Artifact accepted and published, content: { application/json: { schema: { $ref: "#/components/schemas/Artifact" } } } } }
+  /workspaces/{workspaceId}/permanent-channels/{channelId}/artifacts/{artifactId}/simulations:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { name: channelId, in: path, required: true, schema: { type: string } }, { name: artifactId, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: simulateRunbook
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { version: { type: integer }, inputs: { type: object, additionalProperties: { type: string } } } } } } }
+      responses: { "201": { description: Side-effect-free simulation result, content: { application/json: { schema: { $ref: "#/components/schemas/ArtifactSimulation" } } } } }
+  /workspaces/{workspaceId}/incidents/{incidentId}/archive:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }, { $ref: "#/components/parameters/IncidentId" }]
+    post:
+      operationId: archiveReviewedIncident
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      responses: { "200": { description: Reviewed incident with accepted knowledge archived, content: { application/json: { schema: { $ref: "#/components/schemas/Incident" } } } } }
+  /workspaces/{workspaceId}/audit-export:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }]
+    get:
+      operationId: exportAudit
+      parameters: [{ name: from, in: query, schema: { type: string, format: date-time } }, { name: to, in: query, schema: { type: string, format: date-time } }]
+      responses: { "200": { description: Workspace-scoped audit events } }
+  /workspaces/{workspaceId}/pilot-baseline:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }]
+    put:
+      operationId: setPilotBaseline
+      parameters: [{ $ref: "#/components/parameters/PrincipalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PilotBaseline" } } } }
+      responses: { "200": { description: Prior-process baseline recorded } }
+  /workspaces/{workspaceId}/pilot-analytics:
+    parameters: [{ $ref: "#/components/parameters/WorkspaceId" }]
+    get:
+      operationId: getPilotAnalytics
+      responses: { "200": { description: Time-to-context and first accepted decision comparison, content: { application/json: { schema: { $ref: "#/components/schemas/PilotAnalytics" } } } } }
 components:
   parameters:
     WorkspaceId:
@@ -1278,3 +1334,61 @@ components:
           items: { $ref: "#/components/schemas/Block" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    ArtifactInput:
+      type: object
+      required: [type, title, content]
+      properties:
+        type: { type: string, enum: [runbook, known-issue, ownership-record, escalation-policy, saved-query, decision-record, integration-recipe] }
+        title: { type: string }
+        content: { type: string }
+        sourceIncidentId: { type: string }
+        agentRunId: { type: string }
+        evidenceBlockIds: { type: array, items: { type: string } }
+    Artifact:
+      type: object
+      required: [id, workspaceId, permanentChannelId, type, title, version, content, status, proposedBy, createdAt]
+      properties:
+        id: { type: string }
+        workspaceId: { type: string }
+        permanentChannelId: { type: string }
+        type: { type: string }
+        title: { type: string }
+        version: { type: integer, minimum: 1 }
+        content: { type: string }
+        status: { type: string, enum: [proposed, published] }
+        sourceIncidentId: { type: string }
+        evidenceBlockIds: { type: array, items: { type: string } }
+        proposedBy: { type: string }
+        agentRunId: { type: string }
+        acceptedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        publishedAt: { type: string, format: date-time }
+    ArtifactSimulation:
+      type: object
+      required: [id, artifactId, version, workspaceId, result, passed, simulatedBy, simulatedAt]
+      properties:
+        id: { type: string }
+        artifactId: { type: string }
+        version: { type: integer }
+        workspaceId: { type: string }
+        inputs: { type: object, additionalProperties: { type: string } }
+        result: { type: string }
+        passed: { type: boolean }
+        simulatedBy: { type: string }
+        simulatedAt: { type: string, format: date-time }
+    PilotBaseline:
+      type: object
+      required: [timeToContextSeconds, timeToFirstAcceptedDecisionSeconds]
+      properties:
+        timeToContextSeconds: { type: integer, minimum: 1 }
+        timeToFirstAcceptedDecisionSeconds: { type: integer, minimum: 1 }
+    PilotAnalytics:
+      type: object
+      required: [baseline, incidents]
+      properties:
+        baseline: { $ref: "#/components/schemas/PilotBaseline" }
+        incidents: { type: array, items: { type: object } }
+        averageTimeToContextSeconds: { type: integer }
+        averageTimeToFirstAcceptedDecisionSeconds: { type: integer }
+        timeToContextImprovementPercent: { type: number }
+        timeToFirstAcceptedDecisionImprovementPercent: { type: number }

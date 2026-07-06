@@ -215,8 +215,12 @@ type Approval struct {
 }
 
 type AuditEvent struct {
-	ID, WorkspaceID, ActorID, Action, TargetID string
-	At                                         time.Time
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspaceId"`
+	ActorID     string    `json:"actorId"`
+	Action      string    `json:"action"`
+	TargetID    string    `json:"targetId"`
+	At          time.Time `json:"at"`
 }
 
 type Store struct {
@@ -247,6 +251,9 @@ type Store struct {
 	workflowRuns        map[string][]WorkflowRun
 	repositoryConfigs   map[string]RepositoryConfig
 	investigations      map[string][]Investigation
+	artifacts           map[string][]Artifact
+	artifactSimulations map[string][]ArtifactSimulation
+	pilotBaselines      map[string]PilotBaseline
 	sandbox             SandboxProvider
 	github              GitHubService
 	modelGateway        ModelGateway
@@ -279,6 +286,9 @@ func NewStore() *Store {
 		workflowRuns:        make(map[string][]WorkflowRun),
 		repositoryConfigs:   make(map[string]RepositoryConfig),
 		investigations:      make(map[string][]Investigation),
+		artifacts:           make(map[string][]Artifact),
+		artifactSimulations: make(map[string][]ArtifactSimulation),
+		pilotBaselines:      make(map[string]PilotBaseline),
 		sandbox:             UnavailableSandbox{},
 		github:              UnavailableGitHub{},
 		now:                 time.Now,
@@ -686,6 +696,19 @@ func (s *Store) UpdateIncident(workspaceID, id, actorID, lifecycle, severity, ow
 		}
 		if lifecycle == "resolved" && (strings.TrimSpace(incident.VerifiedSummary) == "" || !checklistComplete(incident.ClosureChecklist)) {
 			return Incident{}, ErrConflict
+		}
+		if lifecycle == "archived" {
+			hasPublishedKnowledge := false
+			for _, versions := range s.artifacts {
+				for _, artifact := range versions {
+					if artifact.SourceIncidentID == id && artifact.Status == "published" {
+						hasPublishedKnowledge = true
+					}
+				}
+			}
+			if !hasPublishedKnowledge {
+				return Incident{}, ErrConflict
+			}
 		}
 		incident.Lifecycle = lifecycle
 	}
