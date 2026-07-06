@@ -5,6 +5,7 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: gimme-context-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: http
       port: {{ .Values.service.apiPort }}
@@ -18,6 +19,7 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: gimme-context-web
+    app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: http
       port: {{ .Values.service.webPort }}

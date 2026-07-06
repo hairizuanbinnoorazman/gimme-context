@@ -1,0 +1,30 @@
+# Images are built and loaded into Minikube by scripts/minikube-deploy.sh.
+image:
+  repository: gimme-context
+  tag: minikube
+  pullPolicy: Never
+
+workerImage:
+  repository: gimme-context-worker
+  tag: minikube
+  pullPolicy: Never
+
+webImage:
+  repository: gimme-context-web
+  tag: minikube
+  pullPolicy: Never
+
+replicaCount: 1
+
+service:
+  type: NodePort
+  apiPort: 8080
+  webPort: 8080
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

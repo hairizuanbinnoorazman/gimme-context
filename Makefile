@@ -1,4 +1,4 @@
-.PHONY: build test fmt web-build clean
+.PHONY: build test fmt web-build clean minikube-deploy minikube-smoke
 
 build:
 	mkdir -p bin
@@ -17,3 +17,9 @@ web-build:
 
 clean:
 	rm -rf bin web/dist
+
+minikube-deploy:
+	./scripts/minikube-deploy.sh
+
+minikube-smoke:
+	./scripts/minikube-smoke.sh

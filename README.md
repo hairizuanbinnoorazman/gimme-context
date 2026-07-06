@@ -41,6 +41,29 @@ The initial Helm chart is under `deploy/helm/gimme-context`. Build the backend
 container with target `api` or `worker`, and build the frontend with
 `web/Dockerfile`.
 
+## Minikube deployment
+
+Prerequisites are Docker, Minikube, Helm 3, curl, and jq. Deploy all
+three workloads, load their local images into Minikube, and wait for readiness:
+
+```sh
+make minikube-deploy
+make minikube-smoke
+minikube service --namespace gimme-context gimme-context-web
+```
+
+The smoke test reaches the UI and API through the web service, sets the
+development principal, creates an incident, posts an update, and reads it back.
+The UI's **Acting as** field and its `X-Principal-ID` request header are the
+current development login boundary. They are suitable only for local testing;
+verified OIDC login is not implemented yet.
+
+Set `MINIKUBE_PROFILE`, `NAMESPACE`, or `RELEASE` to override their defaults.
+Set `MINIKUBE_IMAGE_TAG` when a stable image tag is needed; otherwise every
+deployment generates a tag so Kubernetes rolls out the new local build. The
+smoke script also accepts `SMOKE_PORT` (default `18080`). Because the store is
+currently in memory, application data is lost whenever the API pod restarts.
+
 M1 through M6 are functionally complete against the in-memory contract store.
 The API-backed Elm
 interface supports permanent and incident channels, template-based incident

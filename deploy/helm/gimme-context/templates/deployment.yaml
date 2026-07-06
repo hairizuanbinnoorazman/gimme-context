@@ -4,15 +4,18 @@ metadata:
   name: {{ .Release.Name }}-api
   labels:
     app.kubernetes.io/name: gimme-context-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: gimme-context-api
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app.kubernetes.io/name: gimme-context-api
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       containers:
         - name: api
@@ -37,15 +40,18 @@ metadata:
   name: {{ .Release.Name }}-worker
   labels:
     app.kubernetes.io/name: gimme-context-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: gimme-context-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app.kubernetes.io/name: gimme-context-worker
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       containers:
         - name: worker
@@ -59,15 +65,18 @@ metadata:
   name: {{ .Release.Name }}-web
   labels:
     app.kubernetes.io/name: gimme-context-web
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: gimme-context-web
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app.kubernetes.io/name: gimme-context-web
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       containers:
         - name: web
@@ -80,6 +89,10 @@ spec:
             - name: API_UPSTREAM
               value: http://{{ .Release.Name }}-api:{{ .Values.service.apiPort }}
           livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+          readinessProbe:
             httpGet:
               path: /health/live
               port: http
