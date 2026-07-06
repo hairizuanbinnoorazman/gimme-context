@@ -245,6 +245,10 @@ type Store struct {
 	collaboration       map[string][]CollaborationEnvelope
 	workflowDefinitions map[string][]WorkflowDefinition
 	workflowRuns        map[string][]WorkflowRun
+	repositoryConfigs   map[string]RepositoryConfig
+	investigations      map[string][]Investigation
+	sandbox             SandboxProvider
+	github              GitHubService
 	modelGateway        ModelGateway
 	now                 func() time.Time
 }
@@ -273,6 +277,10 @@ func NewStore() *Store {
 		collaboration:       make(map[string][]CollaborationEnvelope),
 		workflowDefinitions: make(map[string][]WorkflowDefinition),
 		workflowRuns:        make(map[string][]WorkflowRun),
+		repositoryConfigs:   make(map[string]RepositoryConfig),
+		investigations:      make(map[string][]Investigation),
+		sandbox:             UnavailableSandbox{},
+		github:              UnavailableGitHub{},
 		now:                 time.Now,
 	}
 }

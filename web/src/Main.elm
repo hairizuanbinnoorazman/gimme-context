@@ -17,7 +17,7 @@ type alias Model =
     { workspace : String, actor : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe, agents : List Agent
     , active : Active, posts : List Post, draft : String, blockType : String, replyTo : Maybe Post, editing : Maybe Post
     , createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
-    , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, busy : Bool, error : Maybe String
+    , structuredType : String, coordination : Coordination, collections : List ContextCollection, recipeId : String, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, investigations : List Investigation, busy : Bool, error : Maybe String
     }
 
 type Active = None | IncidentActive Incident | ChannelActive Channel
@@ -51,20 +51,23 @@ type alias AIProposal = { id : String, kind : String, content : String, status :
 type alias WorkflowDefinition = { id : String, name : String, version : Int }
 type alias WorkflowRun = { id : String, status : String, definitionVersion : Int, steps : List WorkflowStepState }
 type alias WorkflowStepState = { stepId : String, name : String, mode : String, risk : String, status : String, stoppedBy : String }
+type alias Investigation = { id : String, status : String, repository : String, readOnly : Bool, branch : String, evidence : List InvestigationEvidence, pullRequest : Maybe PullRequest }
+type alias InvestigationEvidence = { kind : String, summary : String, sha256 : String }
+type alias PullRequest = { number : Int, url : String }
 
 type Msg
     = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String | SetBlockType String
     | Publish | SetReply Post | EditPost Post | CancelReply | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateChannel
     | AdvanceLifecycle | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
     | SetActor String | SetMember String | SetMemberRole String | AddMember | TransferOwnership | SetStructured String | SetStructuredType String | AddStructured
-    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | SetWorkflow String | StartWorkflow | SetWorkflowView String | WorkflowCommand WorkflowRun String String | DismissError | Reload
+    | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | CollectContext | RefreshContext ContextCollection | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | SetWorkflow String | StartWorkflow | SetWorkflowView String | WorkflowCommand WorkflowRun String String | StartInvestigation | DestroyInvestigation Investigation | DismissError | Reload
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( { workspace = "acme", actor = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
       , draft = "", blockType = "markdown", replyTo = Nothing, editing = Nothing, createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
-      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", busy = True, error = Nothing }
+      , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, collections = [], recipeId = "", similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", investigations = [], busy = True, error = Nothing }
     , Cmd.batch [ get "incidents" "/api/v1/workspaces/acme/incidents", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents", get "workflowDefinitions" "/api/v1/workspaces/acme/workflow-definitions" ]
     )
 
@@ -73,7 +76,7 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         GotApi raw -> handleResponse raw model
-        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, collections = [], similar = [], agentRuns = [], aiProposals = [], workflowRuns = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ get "posts" (incidentPath model incident.id ++ "/posts"), get "coordination" (incidentPath model incident.id ++ "/coordination"), get "collections" (incidentPath model incident.id ++ "/context-collections"), getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, get "agentRuns" (incidentPath model incident.id ++ "/agent-runs"), get "aiProposals" (incidentPath model incident.id ++ "/ai-proposals"), get "workflowRuns" (incidentPath model incident.id ++ "/workflow-runs") ] )
+        SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, collections = [], similar = [], agentRuns = [], aiProposals = [], workflowRuns = [], investigations = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ get "posts" (incidentPath model incident.id ++ "/posts"), get "coordination" (incidentPath model incident.id ++ "/coordination"), get "collections" (incidentPath model incident.id ++ "/context-collections"), getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, get "agentRuns" (incidentPath model incident.id ++ "/agent-runs"), get "aiProposals" (incidentPath model incident.id ++ "/ai-proposals"), get "workflowRuns" (incidentPath model incident.id ++ "/workflow-runs"), get "investigations" (incidentPath model incident.id ++ "/investigations") ] )
         SelectChannel channel -> ( { model | active = ChannelActive channel, posts = [], error = Nothing }, get "posts" (channelPath model channel.id ++ "/posts") )
         SetDraft v -> ( { model | draft = v }, Cmd.none )
         SetBlockType v -> ( { model | blockType = v }, Cmd.none )
@@ -103,6 +106,8 @@ update msg model =
         SetWorkflowView v -> ( { model | workflowView = v }, Cmd.none )
         StartWorkflow -> incidentCommand model "POST" "/workflow-runs" (Encode.object [ ( "definitionId", Encode.string model.workflowId ), ( "definitionVersion", Encode.int 0 ), ( "variables", Encode.object [] ) ])
         WorkflowCommand run commandName stepId -> incidentCommand model "POST" ("/workflow-runs/" ++ run.id ++ "/commands") (Encode.object [ ( "command", Encode.string commandName ), ( "stepId", Encode.string stepId ), ( "justification", Encode.string "Operator command from workflow view" ) ])
+        StartInvestigation -> incidentCommand model "POST" "/investigations" (Encode.object [ ( "ref", Encode.string "" ), ( "ttlSeconds", Encode.int 3600 ) ])
+        DestroyInvestigation item -> incidentCommand model "POST" ("/investigations/" ++ item.id ++ "/destroy") (Encode.object [])
         CollectContext -> incidentCommand model "POST" "/context-collections" (Encode.object [ ( "recipeId", Encode.string model.recipeId ), ( "labels", Encode.object [] ) ])
         RefreshContext collection -> incidentCommand model "POST" ("/context-collections/" ++ collection.id ++ "/refresh") (Encode.object [ ( "labels", Encode.object [] ) ])
         DismissError -> ( { model | error = Nothing }, Cmd.none )
@@ -229,6 +234,9 @@ handleResponse raw model =
                 "workflowRuns" -> case Decode.decodeValue (Decode.field "items" (Decode.list workflowRunDecoder)) response.body of
                     Ok items -> ( { model | workflowRuns = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
+                "investigations" -> case Decode.decodeValue (Decode.field "items" (Decode.list investigationDecoder)) response.body of
+                    Ok items -> ( { model | investigations = items, busy = False }, Cmd.none )
+                    Err err -> decodeFailure model err
                 "collections" -> case Decode.decodeValue (Decode.field "items" (Decode.list contextCollectionDecoder)) response.body of
                     Ok items -> ( { model | collections = items, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
@@ -245,7 +253,7 @@ handleResponse raw model =
                     Ok incident -> ( replaceIncident incident { model | active = IncidentActive incident, summaryDraft = incident.verifiedSummary, busy = False }, Cmd.none )
                     Err err -> decodeFailure model err
                 "post" -> ( { model | busy = False }, refreshPosts model )
-                _ -> ( { model | createTitle = "", memberDraft = "", busy = False }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshCoordination model, refreshCollections model, refreshAgents model, refreshWorkflows model ] )
+                _ -> ( { model | createTitle = "", memberDraft = "", busy = False }, Cmd.batch [ get "incidents" (workspacePath model ++ "/incidents"), get "channels" (workspacePath model ++ "/permanent-channels"), refreshPosts model, refreshCoordination model, refreshCollections model, refreshAgents model, refreshWorkflows model, refreshInvestigations model ] )
 
 
 replaceIncident : Incident -> Model -> Model
@@ -335,7 +343,27 @@ incidentState model incident =
         , contextPanel model
         , agentPanel model
         , workflowPanel model
+        , investigationPanel model
         , coordinationView model
+        ]
+
+investigationPanel model =
+    div [ class "investigation-panel" ]
+        [ h2 [] [ text "Sandboxed investigation and GitHub remediation" ]
+        , button [ onClick StartInvestigation, disabled model.busy ] [ text "Start disposable investigation" ]
+        , p [] [ text "Checkout is read-only until a traceable agent/* patch branch is prepared. Browser evidence is restricted to configured staging origins." ]
+        , div [] (List.map viewInvestigation model.investigations)
+        ]
+
+viewInvestigation item =
+    div [ class ("investigation investigation-" ++ item.status) ]
+        [ span [ class "block-kind" ] [ text (item.repository ++ " · " ++ item.status) ]
+        , p [] [ text ((if item.readOnly then "Read-only checkout" else "Patch workspace " ++ item.branch) ++ " · " ++ String.fromInt (List.length item.evidence) ++ " reproducible evidence blocks") ]
+        , div [] (List.map (\e -> p [] [ text (e.kind ++ ": " ++ e.summary ++ " · sha256:" ++ String.left 12 e.sha256) ]) item.evidence)
+        , case item.pullRequest of
+            Just pr -> p [] [ text ("GitHub pull request #" ++ String.fromInt pr.number ++ " · " ++ pr.url) ]
+            Nothing -> text ""
+        , button [ onClick (DestroyInvestigation item), disabled (item.status == "destroyed") ] [ text "Destroy sandbox" ]
         ]
 
 workflowPanel model =
@@ -461,6 +489,10 @@ refreshWorkflows model =
     case model.active of
         IncidentActive i -> get "workflowRuns" (incidentPath model i.id ++ "/workflow-runs")
         _ -> Cmd.none
+refreshInvestigations model =
+    case model.active of
+        IncidentActive i -> get "investigations" (incidentPath model i.id ++ "/investigations")
+        _ -> Cmd.none
 
 responseDecoder = Decode.map4 Response (Decode.field "tag" Decode.string) (Decode.field "ok" Decode.bool) (Decode.field "status" Decode.int) (Decode.field "body" Decode.value)
 incidentDecoder = Decode.map8 Incident (Decode.field "id" Decode.string) (Decode.field "title" Decode.string) (Decode.field "ownerId" Decode.string) (Decode.field "severity" Decode.string) (Decode.field "lifecycle" Decode.string) (Decode.field "scope" (Decode.list Decode.string)) (Decode.oneOf [ Decode.field "verifiedSummary" Decode.string, Decode.succeed "" ]) (Decode.field "closureChecklist" (Decode.list checklistDecoder))
@@ -487,6 +519,9 @@ aiProposalDecoder = Decode.map6 AIProposal (Decode.field "id" Decode.string) (De
 workflowDefinitionDecoder = Decode.map3 WorkflowDefinition (Decode.field "id" Decode.string) (Decode.field "name" Decode.string) (Decode.field "version" Decode.int)
 workflowRunDecoder = Decode.map4 WorkflowRun (Decode.field "id" Decode.string) (Decode.field "status" Decode.string) (Decode.field "definitionVersion" Decode.int) (Decode.field "steps" (Decode.list workflowStepStateDecoder))
 workflowStepStateDecoder = Decode.map6 WorkflowStepState (Decode.field "stepId" Decode.string) (Decode.field "name" Decode.string) (Decode.field "mode" Decode.string) (Decode.field "risk" Decode.string) (Decode.field "status" Decode.string) (Decode.oneOf [ Decode.field "stoppedBy" Decode.string, Decode.succeed "" ])
+investigationDecoder = Decode.map7 Investigation (Decode.field "id" Decode.string) (Decode.field "status" Decode.string) (Decode.field "repository" Decode.string) (Decode.field "readOnly" Decode.bool) (Decode.oneOf [ Decode.field "branch" Decode.string, Decode.succeed "" ]) (Decode.field "evidence" (Decode.list investigationEvidenceDecoder)) (Decode.maybe (Decode.field "pullRequest" pullRequestDecoder))
+investigationEvidenceDecoder = Decode.map3 InvestigationEvidence (Decode.field "kind" Decode.string) (Decode.field "summary" Decode.string) (Decode.field "sha256" Decode.string)
+pullRequestDecoder = Decode.map2 PullRequest (Decode.field "number" Decode.int) (Decode.field "url" Decode.string)
 
 subscriptions _ = apiResponse GotApi
 main = Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }

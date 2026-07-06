@@ -165,6 +165,12 @@ Implemented acceptance surface:
 
 ### M5: Sandboxed investigation and GitHub remediation
 
+Status: complete for the M5 functional slice. Disposable sandbox and GitHub
+transports, investigation state, evidence integrity, staging egress controls,
+and protected pull-request creation are implemented against the in-memory
+contract store. Production sandbox provisioning and GitHub App credential
+acquisition remain deployment integration dependencies.
+
 - Disposable execution environment
 - Repository checkout and read-only investigation
 - Diagnostic script and test execution
@@ -175,6 +181,19 @@ Implemented acceptance surface:
 
 Exit condition: an agent reproduces a known issue, proposes a verified patch, and
 creates a traceable pull request without production access.
+
+Implemented acceptance surface:
+
+- Time-bounded disposable sandboxes with explicit destruction and read-only checkout
+- Command allowlists for diagnostic/test execution and HTTPS origin allowlists for
+  staging browser use, with production and arbitrary shell access denied
+- Immutable SHA-256 finding, test, checkout, and browser evidence records
+- Explicit transition to writable `agent/*` patch branches through GitHub
+- Pull requests gated on both reproduction and verification evidence
+- Effective merge policy that can only strengthen channel policy with live GitHub
+  branch protections, never weaken required checks, reviews, or conversations
+- Evidence-linked pull-request bodies, audit events, OpenAPI routes, Elm visibility
+  and controls, and backend safety/known-issue acceptance coverage
 
 ### M6: Knowledge feedback and pilot evaluation
 

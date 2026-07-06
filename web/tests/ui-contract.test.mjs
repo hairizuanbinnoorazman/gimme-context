@@ -22,3 +22,8 @@ test("workflow safety controls are trusted and visible", () => {
   for (const label of ["Workflow projection", "Start workflow", "Stop workflow", "Stop autonomy", "Authorised restart", "Retry"]) assert.match(main, new RegExp(label));
   assert.match(main, /\[ "checklist", "flow" \]/);
 });
+
+test("sandbox and pull-request evidence controls are visible", () => {
+  for (const label of ["Start disposable investigation", "Read-only checkout", "reproducible evidence blocks", "GitHub pull request", "Destroy sandbox"]) assert.match(main, new RegExp(label));
+  assert.match(main, /sha256:/);
+});
