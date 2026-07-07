@@ -12,6 +12,12 @@ test("trusted controls have accessible names and use live API state", () => {
   assert.match(html, /fetch\(request\.url/);
 });
 
+test("incidents identify their opener without presenting AI incidents as a separate type", () => {
+  assert.match(main, /" · Opened by "/);
+  assert.doesNotMatch(main, /" · AI detected"/);
+  assert.doesNotMatch(main, /Create AI-detected incident/);
+});
+
 test("post content uses markdown with fenced code instead of mismatched block choices", () => {
   assert.match(main, /Encode\.string "markdown"/);
   assert.match(main, /String\.startsWith "```"/);
@@ -29,6 +35,13 @@ test("replies render beneath their parent with one nesting rail", () => {
 test("the single-block composer exposes one post-level reply action", () => {
   assert.match(main, /text "Reply to post"/);
   assert.doesNotMatch(main, /text "Reply to block"/);
+});
+
+test("posts show a date-time and optional contribution tools live in the composer", () => {
+  assert.match(main, /Html\.time \[ attribute "datetime" post\.createdAt/);
+  assert.match(main, /Add optional content/);
+  assert.match(main, /AI knowledge base addition/);
+  assert.doesNotMatch(main, /incidentState model incident =[\s\S]*h2 \[\] \[ text "Structured coordination"/);
 });
 
 test("critical actions remain available in the responsive interface", () => {

@@ -87,6 +87,7 @@ type Incident struct {
 	Title                string             `json:"title"`
 	Description          string             `json:"description,omitempty"`
 	OwnerID              string             `json:"ownerId"`
+	CreatedBy            string             `json:"createdBy"`
 	Severity             string             `json:"severity"`
 	Lifecycle            string             `json:"lifecycle"`
 	Scope                []string           `json:"scope"`
@@ -684,7 +685,7 @@ func (s *Store) CreateIncident(workspaceID, actorID, title, description, severit
 	now := s.now().UTC()
 	incident := Incident{
 		ID: newID(), WorkspaceID: workspaceID, Title: title,
-		Description: strings.TrimSpace(description), OwnerID: actorID,
+		Description: strings.TrimSpace(description), OwnerID: actorID, CreatedBy: actorID,
 		Severity: severity, Lifecycle: "open", Scope: scope,
 		ClosureChecklist: defaultClosureChecklist(), CreatedAt: now, UpdatedAt: now,
 	}
@@ -807,10 +808,12 @@ func (s *Store) DetectIncident(workspaceID, sponsorID, detectorID, title, severi
 	s.mu.Lock()
 	stored := s.incidents[incident.ID]
 	stored.Detection = detection
+	stored.CreatedBy = detectorID
 	s.incidents[incident.ID] = stored
 	s.record(workspaceID, detectorID, "incident.created_from_ai_detection", incident.ID, stored.CreatedAt)
 	s.mu.Unlock()
 	incident.Detection = detection
+	incident.CreatedBy = detectorID
 	return DetectionResult{Created: true, Incident: &incident}, nil
 }
 

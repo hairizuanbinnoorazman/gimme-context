@@ -14,6 +14,7 @@ async function createIncidentWithEvidence(page, prefix) {
 test("Compose provides context collection and evidence-linked AI synthesis", async ({ page }) => {
   await createIncidentWithEvidence(page, "Context and AI");
 
+  await page.getByLabel("Add optional content").selectOption("context");
   await page.getByLabel("Context recipe").selectOption({ label: "Service health v1" });
   await page.getByRole("button", { name: "Preview recipe" }).click();
   await expect(page.locator(".context-preview")).toContainText("Preview only — not published");
@@ -23,6 +24,7 @@ test("Compose provides context collection and evidence-linked AI synthesis", asy
   const collection = page.locator(".context-collection").last();
   await expect(collection).toContainText("Collection complete");
   await expect(collection).toContainText("2 snapshots · 0 failures");
+  await page.getByRole("button", { name: "Close optional content" }).click();
 
   await page.getByLabel("Incident agent").selectOption({ label: "Incident synthesizer · local-deterministic" });
   await page.getByRole("button", { name: "Activate agent" }).click();
@@ -74,9 +76,11 @@ test("incidents can be related and split with provenance and independent access"
   await page.getByRole("button", { name: "Link incident" }).click();
   await expect(page.locator(".relationship-row")).toContainText(`recurrence-of · ${second}`);
 
+  await page.getByLabel("Add optional content").selectOption("knowledge");
   await page.getByLabel("Knowledge search").fill("HTTP 500");
   await page.getByRole("button", { name: "Search knowledge" }).click();
-  await expect(page.locator(".search-result")).toContainText(`post · ${first}`);
+  await expect(page.locator(".search-result", { hasText: `post · ${first}` })).toBeVisible();
+  await page.getByRole("button", { name: "Close optional content" }).click();
   const derivedResponse = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/derive"));
   await page.locator("article.post", { hasText: "HTTP 500 followed" }).getByRole("button", { name: "Repost to selected incident" }).click();
   const derived = await (await derivedResponse).json();
@@ -99,7 +103,7 @@ test("incidents can be related and split with provenance and independent access"
 
   await page.getByRole("button", { name: `unclassified ${splitTitle}` }).click();
   await expect(page.getByText("HTTP 500 followed the latest deployment.")).toBeVisible();
-  await expect(page.locator(".relationship-row")).toContainText(`parent-of · ${first}`);
+  await expect(page.locator(".relationship-row", { hasText: `parent-of · ${first}` })).toBeVisible();
 
   await page.getByLabel("Development principal").fill("bob");
   await page.getByRole("button", { name: "Switch" }).click();
@@ -109,23 +113,24 @@ test("incidents can be related and split with provenance and independent access"
 test("approved AI detection records its gates and supports false-alarm cancellation", async ({ page }) => {
   await page.goto("/");
   const title = `Detected saturation ${Date.now()}`;
-  await page.getByLabel("Incident title", { exact: true }).fill(title);
-  await page.getByLabel("Incident severity").selectOption("SEV-2");
-  const detectionResponse = page.waitForResponse(response =>
-    response.request().method() === "POST" && response.url().endsWith("/ai-incident-detections")
-  );
-  await page.getByRole("button", { name: "Create AI-detected incident" }).click();
-  const result = await (await detectionResponse).json();
+  const headers = { "X-Principal-ID": "alice" };
+  const agents = await (await page.request.get("/api/v1/workspaces/acme/agents", { headers })).json();
+  const detectionResponse = await page.request.post("/api/v1/workspaces/acme/ai-incident-detections", {
+    headers,
+    data: { detectorId: agents.items[0].id, title, severity: "SEV-2", trigger: "automated evaluation", rule: "compose-demo-detection-policy-v1", confidence: 0.95, confidenceGate: 0.8, minimumSeverity: "SEV-4", supportingEvidence: [`operator-visible signal: ${title}`] },
+  });
+  const result = await detectionResponse.json();
   expect(result.created).toBe(true);
   expect(result.incident.detection.confidence).toBe(0.95);
   expect(result.incident.detection.confidenceGate).toBe(0.8);
   expect(result.incident.detection.rule).toBe("compose-demo-detection-policy-v1");
   expect(result.incident.detection.supportingEvidence).toHaveLength(1);
 
+  await page.reload();
   await page.getByRole("button", { name: `SEV-2 ${title}` }).click();
-  await expect(page.getByText("SEV-2 · open · AI detected")).toBeVisible();
+  await expect(page.getByText(/SEV-2 · open · Opened by /)).toBeVisible();
   await page.getByRole("button", { name: "Cancel false alarm" }).click();
-  await expect(page.getByText("SEV-2 · cancelled · AI detected")).toBeVisible();
+  await expect(page.getByText(/SEV-2 · cancelled · Opened by /)).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel false alarm" })).toHaveCount(0);
 });
 
@@ -155,5 +160,5 @@ test("running incidents explicitly migrate template versions and retain prior sn
   await page.getByRole("button", { name: "Migrate configuration" }).click();
   await expect(page.getByText("Migration template v2 · 1 prior snapshots")).toBeVisible();
   await expect(page.getByText("checkout, production", { exact: true })).toBeVisible();
-  await expect(page.getByText("SEV-1 · open", { exact: true })).toBeVisible();
+  await expect(page.getByText(/SEV-1 · open · Opened by /)).toBeVisible();
 });

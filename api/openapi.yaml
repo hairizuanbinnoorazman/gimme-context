@@ -1090,13 +1090,14 @@ components:
         revokedAt: { type: string, format: date-time }
     Incident:
       type: object
-      required: [id, workspaceId, title, ownerId, severity, lifecycle, scope, closureChecklist, createdAt, updatedAt]
+      required: [id, workspaceId, title, ownerId, createdBy, severity, lifecycle, scope, closureChecklist, createdAt, updatedAt]
       properties:
         id: { type: string }
         workspaceId: { type: string }
         title: { type: string }
         description: { type: string }
         ownerId: { type: string }
+        createdBy: { type: string, description: Principal or approved detector that opened the incident }
         severity: { $ref: "#/components/schemas/Severity" }
         lifecycle: { $ref: "#/components/schemas/Lifecycle" }
         scope:

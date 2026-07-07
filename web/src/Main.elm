@@ -19,12 +19,13 @@ type alias Model =
     , createKind : String, createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
     , structuredType : String, coordination : Coordination, memberships : List Membership, relationships : List IncidentRelationship, relationTarget : String, relationKind : String, splitTitle : String, collections : List ContextCollection, recipePreview : Maybe ContextCollection, recipeId : String, searchQuery : String, searchResults : List KnowledgeSearchResult, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, investigations : List Investigation, busy : Bool, error : Maybe String
     , adminOpen : Bool, adminAgentName : String, adminAgentPurpose : String, adminAgentModel : String, adminTemplateName : String, adminTemplateScope : String, auditEvents : List AuditEvent
+    , composerTool : String
     }
 
 type Active = None | IncidentActive Incident | ChannelActive Channel
 
 type alias Incident =
-    { id : String, title : String, ownerId : String, severity : String, lifecycle : String
+    { id : String, title : String, ownerId : String, createdBy : String, severity : String, lifecycle : String
     , scope : List String, verifiedSummary : String, closureChecklist : List ChecklistItem, aiDetected : Bool, configuration : String
     }
 
@@ -63,11 +64,12 @@ type alias AuditEvent = { actorId : String, action : String, subjectId : String,
 
 type Msg
     = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String
-    | Publish | SetReply Post String | DerivePost Post | EditPost Post | CancelReply | SetCreateKind String | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateDetectedIncident | CreateChannel
+    | Publish | SetReply Post String | DerivePost Post | EditPost Post | CancelReply | SetCreateKind String | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateChannel
     | AdvanceLifecycle | CancelFalseAlarm | MigrateConfiguration | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
     | SetActorDraft String | ApplyActor | SetMember String | SetMemberRole String | AddMember | UpdateMember Membership String Bool | TransferOwnership | SetRelationTarget String | SetRelationKind String | RelateIncident | SetSplitTitle String | SplitIncident | SetStructured String | SetStructuredType String | AddStructured
     | DecideItem Decision String | AdvanceAction Action | VotePoll Poll | RequestApproval Action | RespondApproval Approval String | SetRecipe String | PreviewContext | CollectContext | RefreshContext ContextCollection | SetSearchQuery String | SearchKnowledge | SetAgent String | SetAgentTask String | ActivateAgent | RunAgent | ReviewProposal AIProposal String | SetWorkflow String | StartWorkflow | SetWorkflowView String | WorkflowCommand WorkflowRun String String | StartInvestigation | ExecuteInvestigation Investigation String | PrepareInvestigationPatch Investigation | CreateInvestigationPR Investigation | DestroyInvestigation Investigation | DismissError | Reload
     | OpenAdmin | CloseAdmin | SetAdminAgentName String | SetAdminAgentPurpose String | SetAdminAgentModel String | CreateAdminAgent | SetAdminTemplateName String | SetAdminTemplateScope String | CreateAdminTemplate | LoadAudit
+    | SetComposerTool String | AttachKnowledge KnowledgeSearchResult
 
 
 init : () -> ( Model, Cmd Msg )
@@ -75,7 +77,7 @@ init _ =
     ( { workspace = "acme", actor = "alice", actorDraft = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
       , draft = "", replyTo = Nothing, replyToBlockId = "", editing = Nothing, createKind = "incident", createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
       , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, memberships = [], relationships = [], relationTarget = "", relationKind = "related", splitTitle = "", collections = [], recipePreview = Nothing, recipeId = "", searchQuery = "", searchResults = [], similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", investigations = [], busy = True, error = Nothing
-      , adminOpen = False, adminAgentName = "", adminAgentPurpose = "", adminAgentModel = "codex-session", adminTemplateName = "", adminTemplateScope = "", auditEvents = [] }
+      , adminOpen = False, adminAgentName = "", adminAgentPurpose = "", adminAgentModel = "codex-session", adminTemplateName = "", adminTemplateScope = "", auditEvents = [], composerTool = "" }
     , Cmd.batch [ getAs "incidents" "/api/v1/workspaces/acme/incidents" "alice", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents", get "workflowDefinitions" "/api/v1/workspaces/acme/workflow-definitions" ]
     )
 
@@ -115,6 +117,10 @@ update msg model =
         SetSplitTitle v -> ( { model | splitTitle = v }, Cmd.none )
         SetStructured v -> ( { model | structuredDraft = v }, Cmd.none )
         SetStructuredType v -> ( { model | structuredType = v }, Cmd.none )
+        SetComposerTool v -> ( { model | composerTool = v }, Cmd.none )
+        AttachKnowledge item ->
+            let attachment = "AI knowledge: " ++ item.title ++ "\n\n" ++ item.excerpt in
+            ( { model | draft = appendDraft model.draft attachment, composerTool = "", searchQuery = "", searchResults = [] }, Cmd.none )
         SetRecipe v -> ( { model | recipeId = v }, Cmd.none )
         SetSearchQuery v -> ( { model | searchQuery = v }, Cmd.none )
         SetAgent v -> ( { model | agentId = v }, Cmd.none )
@@ -168,12 +174,6 @@ update msg model =
                     fields = [ ( "title", Encode.string (String.trim model.createTitle) ) ]
                         ++ (if model.templateId == "" then [ ( "severity", Encode.string model.createSeverity ), ( "scope", Encode.list Encode.string (splitScope model.createScope) ) ] else [ ( "templateId", Encode.string model.templateId ) ])
                 in command model "mutate" "POST" (workspacePath model ++ "/incidents") (Encode.object fields)
-        CreateDetectedIncident ->
-            case model.agents of
-                detector :: _ ->
-                    if String.trim model.createTitle == "" then ( model, Cmd.none )
-                    else command model "mutate" "POST" (workspacePath model ++ "/ai-incident-detections") (Encode.object [ ( "detectorId", Encode.string detector.id ), ( "title", Encode.string (String.trim model.createTitle) ), ( "severity", Encode.string model.createSeverity ), ( "trigger", Encode.string "operator-requested detection evaluation" ), ( "rule", Encode.string "compose-demo-detection-policy-v1" ), ( "confidence", Encode.float 0.95 ), ( "confidenceGate", Encode.float 0.8 ), ( "minimumSeverity", Encode.string "SEV-4" ), ( "supportingEvidence", Encode.list Encode.string [ "operator-visible signal: " ++ String.trim model.createTitle ] ) ])
-                [] -> ( model, Cmd.none )
         CreateChannel ->
             if String.trim model.createTitle == "" then ( model, Cmd.none )
             else command model "mutate" "POST" (workspacePath model ++ "/permanent-channels") (Encode.object [ ( "title", Encode.string (String.trim model.createTitle) ) ])
@@ -271,7 +271,7 @@ addStructured model =
                         "poll" -> ( "/polls", Encode.object [ ( "question", Encode.string model.structuredDraft ), ( "mode", Encode.string "advisory" ), ( "options", Encode.list Encode.string [ "Yes", "No" ] ), ( "eligibleVoterIds", Encode.list Encode.string [ model.actor ] ), ( "quorum", Encode.int 1 ), ( "allowVoteChanges", Encode.bool True ) ] )
                         _ -> ( "/facts", Encode.object [ ( "statement", Encode.string model.structuredDraft ), ( "evidenceBlockIds", Encode.list Encode.string [] ) ] )
             in
-            if String.trim model.structuredDraft == "" then ( model, Cmd.none ) else command { model | structuredDraft = "" } "mutate" "POST" (base ++ suffix) payload
+            if String.trim model.structuredDraft == "" then ( model, Cmd.none ) else command { model | structuredDraft = "", composerTool = "" } "mutate" "POST" (base ++ suffix) payload
         _ -> ( model, Cmd.none )
 
 
@@ -365,7 +365,10 @@ view model =
 
             Nothing ->
                 text ""
-        , div [ class "workspace" ] [ navigation model, main_ [ class "incident" ] [ if model.adminOpen then administration model else content model ] ]
+        , div [ class (if model.adminOpen then "workspace admin-workspace" else "workspace") ]
+            [ if model.adminOpen then text "" else navigation model
+            , main_ [ class "incident" ] [ if model.adminOpen then administration model else content model ]
+            ]
         ]
 
 
@@ -385,7 +388,6 @@ navigation model =
             , label [] [ text "Incident template", select [ value model.templateId, onChange SetTemplate ] (option [ value "" ] [ text "Workspace defaults" ] :: List.map (templateChoice model.templateId) model.templates) ]
             ] else p [ class "create-help" ] [ text "Long-lived discussion and reusable operational knowledge, without an incident lifecycle." ]
         , button [ class "primary-action create-action", onClick (if model.createKind == "incident" then CreateIncident else CreateChannel), disabled (model.busy || String.trim model.createTitle == "") ] [ text (if model.createKind == "incident" then "Create incident" else "Create permanent channel") ]
-        , if model.createKind == "incident" then button [ class "create-action", onClick CreateDetectedIncident, disabled (model.busy || String.trim model.createTitle == "" || List.isEmpty model.agents) ] [ text "Create AI-detected incident" ] else text ""
         ]
 
 administration model =
@@ -459,11 +461,18 @@ content model =
 
 pageHeader title_ kicker action = header [ class "incident-header" ] [ div [] [ p [ class "incident-kicker" ] [ text kicker ], h2 [] [ text title_ ] ], Maybe.withDefault (text "") action ]
 incidentHeader model incident =
-    pageHeader incident.title (incident.severity ++ " · " ++ incident.lifecycle ++ (if incident.aiDetected then " · AI detected" else ""))
+    pageHeader incident.title (incident.severity ++ " · " ++ incident.lifecycle ++ " · Opened by " ++ openerName model incident.createdBy)
         (Just (div [ class "header-actions" ]
             [ if incident.aiDetected && incident.lifecycle /= "cancelled" then button [ class "danger-action", onClick CancelFalseAlarm, disabled model.busy ] [ text "Cancel false alarm" ] else text ""
             , button [ class "primary-action", onClick AdvanceLifecycle, disabled (model.busy || nextLifecycle incident.lifecycle == incident.lifecycle) ] [ text (if incident.lifecycle == "resolved" then "Resolved" else "Advance to " ++ nextLifecycle incident.lifecycle) ]
             ]))
+
+openerName model principalId =
+    model.agents
+        |> List.filter (\agent -> agent.id == principalId)
+        |> List.head
+        |> Maybe.map .name
+        |> Maybe.withDefault principalId
 
 
 feed model =
@@ -489,7 +498,7 @@ viewPostThread model post =
 
 viewPost model post =
     Html.article [ class (if post.replyToPostId == "" then "post" else "post post-reply") ]
-        [ div [ class "post-meta" ] [ span [ class "author" ] [ text post.authorId ], span [] [ text ("revision " ++ String.fromInt post.revision) ] ]
+        [ div [ class "post-meta" ] [ span [ class "author" ] [ text post.authorId ], Html.time [ attribute "datetime" post.createdAt ] [ text (displayTimestamp post.createdAt) ], span [] [ text ("revision " ++ String.fromInt post.revision) ] ]
         , replyContext model post
         , div [] (List.map (viewBlock post) post.blocks)
         , div [] [ button [ class "text-action", onClick (SetReply post "") ] [ text "Reply to post" ], if post.authorId == model.actor then button [ class "text-action edit-action", onClick (EditPost post) ] [ text "Edit" ] else text "", repostAction model post ]
@@ -585,8 +594,48 @@ composer model =
                     Nothing ->
                         text ""
         , label [] [ text "Add to the channel" ], textarea [ placeholder "Share an update…", value model.draft, onInput SetDraft ] []
-        , div [ class "composer-actions" ] [ span [ class "composer-help" ] [ text "Markdown · wrap code in ``` fences" ], button [ class "primary-action", onClick Publish, disabled (model.busy || String.trim model.draft == "") ] [ text (if model.editing == Nothing then "Post update" else "Save revision") ] ]
+        , div [ class "composer-actions" ]
+            [ select [ class "attachment-selector", value "", onChange SetComposerTool, attribute "aria-label" "Add optional content" ]
+                [ option [ value "" ] [ text "Add optional content…" ], option [ value "structured" ] [ text "Structured coordination" ], option [ value "context" ] [ text "Operational context" ], option [ value "knowledge" ] [ text "AI knowledge base addition" ] ]
+            , button [ class "primary-action", onClick Publish, disabled (model.busy || String.trim model.draft == "") ] [ text (if model.editing == Nothing then "Post update" else "Save revision") ]
+            ]
+        , optionalContentDialog model
         ]
+
+optionalContentDialog model =
+    if model.composerTool == "" then text ""
+    else div [ class "modal-backdrop", attribute "role" "presentation" ]
+        [ section [ class "attachment-dialog", attribute "role" "dialog", attribute "aria-modal" "true", attribute "aria-label" (toolTitle model.composerTool) ]
+            [ div [ class "dialog-heading" ] [ h2 [] [ text (toolTitle model.composerTool) ], button [ onClick (SetComposerTool ""), attribute "aria-label" "Close optional content" ] [ text "Close" ] ]
+            , case model.composerTool of
+                "structured" -> div [] [ select [ value model.structuredType, onChange SetStructuredType, attribute "aria-label" "Coordination type" ] (List.map (choice model.structuredType) [ "fact", "decision", "action", "poll" ]), textarea [ value model.structuredDraft, onInput SetStructured, placeholder "Statement, task, or question" ] [], button [ onClick AddStructured, disabled (model.busy || String.trim model.structuredDraft == "") ] [ text "Add" ] ]
+                "context" -> contextCollectionTools model
+                _ -> knowledgeAttachmentTools model
+            ]
+        ]
+
+toolTitle tool = if tool == "structured" then "Structured coordination" else if tool == "context" then "Operational context" else "AI knowledge base addition"
+
+contextCollectionTools model =
+    div [ class "context-panel" ]
+        [ select [ value model.recipeId, onChange SetRecipe, attribute "aria-label" "Context recipe" ] (option [ value "" ] [ text "Select recipe" ] :: List.map contextRecipeChoice model.recipes)
+        , div [ class "context-actions" ] [ button [ onClick PreviewContext, disabled (model.busy || model.recipeId == "") ] [ text "Preview recipe" ], button [ onClick CollectContext, disabled (model.busy || model.recipeId == "") ] [ text "Collect context" ] ]
+        , case model.recipePreview of
+            Just preview -> div [ class "context-preview" ] [ Html.strong [] [ text "Preview only — not published" ], p [] [ text (String.fromInt (List.length preview.snapshots) ++ " planned operations") ], div [] (List.map (\snapshot -> p [] [ text (snapshot.source ++ ": " ++ snapshot.query) ]) preview.snapshots) ]
+            Nothing -> text ""
+        , div [] (List.map viewCollection model.collections)
+        ]
+
+knowledgeAttachmentTools model =
+    div [ class "context-panel" ]
+        [ input [ value model.searchQuery, onInput SetSearchQuery, placeholder "Search visible incident knowledge", attribute "aria-label" "Knowledge search" ] []
+        , button [ onClick SearchKnowledge, disabled (model.busy || String.trim model.searchQuery == "") ] [ text "Search knowledge" ]
+        , div [ class "search-results" ] (List.map (\item -> div [ class "search-result" ] [ Html.strong [] [ text (item.kind ++ " · " ++ item.title) ], p [] [ text item.excerpt ], button [ onClick (AttachKnowledge item) ] [ text "Attach to update" ] ]) model.searchResults)
+        ]
+
+appendDraft current addition = if String.trim current == "" then addition else current ++ "\n\n" ++ addition
+
+displayTimestamp timestamp = timestamp |> String.replace "T" " " |> String.replace "Z" " UTC"
 
 incidentState model incident =
     aside [ class "state-panel" ]
@@ -604,8 +653,6 @@ incidentState model incident =
         , div [ class "relationship-list" ] (List.map (viewRelationship model incident) model.relationships)
         , input [ value model.splitTitle, onInput SetSplitTitle, placeholder "New incident title", attribute "aria-label" "Split incident title" ] []
         , button [ onClick SplitIncident, disabled (model.busy || String.trim model.splitTitle == "" || List.isEmpty model.posts) ] [ text "Split feed into incident" ]
-        , h2 [] [ text "Structured coordination" ], select [ value model.structuredType, onChange SetStructuredType, attribute "aria-label" "Coordination type" ] (List.map (choice model.structuredType) [ "fact", "decision", "action", "poll" ]), textarea [ value model.structuredDraft, onInput SetStructured, placeholder "Statement, task, or question" ] [], button [ onClick AddStructured, disabled model.busy ] [ text "Add" ]
-        , contextPanel model
         , agentPanel model
         , workflowPanel model
         , investigationPanel model
@@ -820,7 +867,7 @@ responseDecoder = Decode.map4 Response (Decode.field "tag" Decode.string) (Decod
 incidentDecoder =
     Decode.map8
         (\id title ownerId severity lifecycle scope verifiedSummary details ->
-            { id = id, title = title, ownerId = ownerId, severity = severity, lifecycle = lifecycle, scope = scope, verifiedSummary = verifiedSummary, closureChecklist = details.checklist, aiDetected = details.detected, configuration = details.configuration }
+            { id = id, title = title, ownerId = ownerId, createdBy = details.createdBy, severity = severity, lifecycle = lifecycle, scope = scope, verifiedSummary = verifiedSummary, closureChecklist = details.checklist, aiDetected = details.detected, configuration = details.configuration }
         )
         (Decode.field "id" Decode.string)
         (Decode.field "title" Decode.string)
@@ -829,7 +876,8 @@ incidentDecoder =
         (Decode.field "lifecycle" Decode.string)
         (Decode.field "scope" (Decode.list Decode.string))
         (Decode.oneOf [ Decode.field "verifiedSummary" Decode.string, Decode.succeed "" ])
-        (Decode.map3 (\checklist detected configuration -> { checklist = checklist, detected = detected, configuration = configuration })
+        (Decode.map4 (\createdBy checklist detected configuration -> { createdBy = createdBy, checklist = checklist, detected = detected, configuration = configuration })
+            (Decode.field "createdBy" Decode.string)
             (Decode.field "closureChecklist" (Decode.list checklistDecoder))
             (Decode.oneOf [ Decode.field "detection" Decode.value |> Decode.map (\_ -> True), Decode.succeed False ])
             (Decode.map2 (\snapshot historyCount -> snapshot ++ " · " ++ String.fromInt historyCount ++ " prior snapshots")

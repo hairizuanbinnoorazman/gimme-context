@@ -34,7 +34,6 @@ test("a human creates an incident and posts an investigation update", async ({ p
   await expect(page.getByText("checkout, production", { exact: true })).toBeVisible();
 
   await page.getByPlaceholder("Share an update…").fill("Latency started after the latest checkout deployment.");
-  await page.getByLabel("Block type").selectOption("status");
   await page.getByRole("button", { name: "Post update" }).click();
   await expect(page.getByText("Latency started after the latest checkout deployment.")).toBeVisible();
 });
@@ -45,6 +44,7 @@ test("operators record and accept a decision", async ({ page }) => {
   await page.getByRole("button", { name: "Create incident" }).click();
   await page.getByRole("button", { name: `unclassified ${title}` }).click();
 
+  await page.getByLabel("Add optional content").selectOption("structured");
   await page.getByLabel("Coordination type").selectOption("decision");
   await page.getByPlaceholder("Statement, task, or question").fill("Roll back the payments deployment.");
   await page.getByRole("button", { name: "Add", exact: true }).click();
