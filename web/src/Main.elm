@@ -1,7 +1,7 @@
 port module Main exposing (main)
 
 import Browser
-import Html exposing (Html, aside, button, div, h1, h2, h3, header, input, label, li, main_, option, p, section, select, span, text, textarea, ul)
+import Html exposing (Html, aside, button, code, div, h1, h2, h3, header, input, label, li, main_, option, p, pre, section, select, span, text, textarea, ul)
 import Html.Attributes exposing (attribute, checked, class, disabled, placeholder, selected, type_, value)
 import Html.Events exposing (on, onCheck, onClick, onInput)
 import Json.Decode as Decode
@@ -15,7 +15,7 @@ port apiResponse : (Decode.Value -> msg) -> Sub msg
 
 type alias Model =
     { workspace : String, actor : String, actorDraft : String, incidents : List Incident, channels : List Channel, templates : List Template, recipes : List ContextRecipe, agents : List Agent
-    , active : Active, posts : List Post, draft : String, blockType : String, replyTo : Maybe Post, replyToBlockId : String, editing : Maybe Post
+    , active : Active, posts : List Post, draft : String, replyTo : Maybe Post, replyToBlockId : String, editing : Maybe Post
     , createKind : String, createTitle : String, createSeverity : String, createScope : String, templateId : String, summaryDraft : String, memberDraft : String, memberRole : String, structuredDraft : String
     , structuredType : String, coordination : Coordination, memberships : List Membership, relationships : List IncidentRelationship, relationTarget : String, relationKind : String, splitTitle : String, collections : List ContextCollection, recipePreview : Maybe ContextCollection, recipeId : String, searchQuery : String, searchResults : List KnowledgeSearchResult, similar : List SimilarIncident, agentId : String, agentTask : String, agentRuns : List AgentRun, aiProposals : List AIProposal, workflowDefinitions : List WorkflowDefinition, workflowId : String, workflowRuns : List WorkflowRun, workflowView : String, investigations : List Investigation, busy : Bool, error : Maybe String
     , adminOpen : Bool, adminAgentName : String, adminAgentPurpose : String, adminAgentModel : String, adminTemplateName : String, adminTemplateScope : String, auditEvents : List AuditEvent
@@ -33,6 +33,7 @@ type alias Channel = { id : String, title : String, description : String }
 type alias Template = { id : String, name : String, version : Int }
 type alias Post = { id : String, authorId : String, revision : Int, replyToPostId : String, replyToBlockId : String, blocks : List Block, createdAt : String }
 type alias Block = { id : String, kind : String, body : String }
+type MarkdownChunk = Prose String | CodeFence String String
 type alias Response = { tag : String, ok : Bool, status : Int, body : Decode.Value }
 type alias Coordination = { facts : List Fact, decisions : List Decision, actions : List Action, polls : List Poll, approvals : List Approval }
 type alias Fact = { id : String, statement : String, state : String }
@@ -61,7 +62,7 @@ type alias PullRequest = { number : Int, url : String }
 type alias AuditEvent = { actorId : String, action : String, subjectId : String, occurredAt : String }
 
 type Msg
-    = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String | SetBlockType String
+    = GotApi Decode.Value | SelectIncident Incident | SelectChannel Channel | SetDraft String
     | Publish | SetReply Post String | DerivePost Post | EditPost Post | CancelReply | SetCreateKind String | SetCreateTitle String | SetCreateSeverity String | SetCreateScope String | SetTemplate String | CreateIncident | CreateDetectedIncident | CreateChannel
     | AdvanceLifecycle | CancelFalseAlarm | MigrateConfiguration | SetSummary String | SaveSummary | ToggleChecklist ChecklistItem Bool
     | SetActorDraft String | ApplyActor | SetMember String | SetMemberRole String | AddMember | UpdateMember Membership String Bool | TransferOwnership | SetRelationTarget String | SetRelationKind String | RelateIncident | SetSplitTitle String | SplitIncident | SetStructured String | SetStructuredType String | AddStructured
@@ -72,7 +73,7 @@ type Msg
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( { workspace = "acme", actor = "alice", actorDraft = "alice", incidents = [], channels = [], templates = [], recipes = [], agents = [], active = None, posts = []
-      , draft = "", blockType = "markdown", replyTo = Nothing, replyToBlockId = "", editing = Nothing, createKind = "incident", createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
+      , draft = "", replyTo = Nothing, replyToBlockId = "", editing = Nothing, createKind = "incident", createTitle = "", createSeverity = "unclassified", createScope = "", templateId = "", summaryDraft = ""
       , memberDraft = "", memberRole = "participant", structuredDraft = "", structuredType = "fact", coordination = emptyCoordination, memberships = [], relationships = [], relationTarget = "", relationKind = "related", splitTitle = "", collections = [], recipePreview = Nothing, recipeId = "", searchQuery = "", searchResults = [], similar = [], agentId = "", agentTask = "", agentRuns = [], aiProposals = [], workflowDefinitions = [], workflowId = "", workflowRuns = [], workflowView = "checklist", investigations = [], busy = True, error = Nothing
       , adminOpen = False, adminAgentName = "", adminAgentPurpose = "", adminAgentModel = "codex-session", adminTemplateName = "", adminTemplateScope = "", auditEvents = [] }
     , Cmd.batch [ getAs "incidents" "/api/v1/workspaces/acme/incidents" "alice", get "channels" "/api/v1/workspaces/acme/permanent-channels", get "templates" "/api/v1/workspaces/acme/incident-templates", get "recipes" "/api/v1/workspaces/acme/context-recipes", get "agents" "/api/v1/workspaces/acme/agents", get "workflowDefinitions" "/api/v1/workspaces/acme/workflow-definitions" ]
@@ -86,11 +87,10 @@ update msg model =
         SelectIncident incident -> ( { model | active = IncidentActive incident, posts = [], coordination = emptyCoordination, memberships = [], relationships = [], relationTarget = "", splitTitle = "", collections = [], recipePreview = Nothing, similar = [], agentRuns = [], aiProposals = [], workflowRuns = [], investigations = [], summaryDraft = incident.verifiedSummary, error = Nothing }, Cmd.batch [ getAs "posts" (incidentPath model incident.id ++ "/posts") model.actor, getAs "memberships" (incidentPath model incident.id ++ "/members") model.actor, getAs "relationships" (incidentPath model incident.id ++ "/relationships") model.actor, getAs "coordination" (incidentPath model incident.id ++ "/coordination") model.actor, getAs "collections" (incidentPath model incident.id ++ "/context-collections") model.actor, getAs "similar" (incidentPath model incident.id ++ "/similar") model.actor, getAs "agentRuns" (incidentPath model incident.id ++ "/agent-runs") model.actor, getAs "aiProposals" (incidentPath model incident.id ++ "/ai-proposals") model.actor, getAs "workflowRuns" (incidentPath model incident.id ++ "/workflow-runs") model.actor, getAs "investigations" (incidentPath model incident.id ++ "/investigations") model.actor ] )
         SelectChannel channel -> ( { model | active = ChannelActive channel, posts = [], error = Nothing }, get "posts" (channelPath model channel.id ++ "/posts") )
         SetDraft v -> ( { model | draft = v }, Cmd.none )
-        SetBlockType v -> ( { model | blockType = v }, Cmd.none )
         SetReply post blockId -> ( { model | replyTo = Just post, replyToBlockId = blockId, editing = Nothing }, Cmd.none )
         EditPost post ->
             case post.blocks of
-                first :: _ -> ( { model | editing = Just post, replyTo = Nothing, replyToBlockId = "", draft = first.body, blockType = first.kind }, Cmd.none )
+                first :: _ -> ( { model | editing = Just post, replyTo = Nothing, replyToBlockId = "", draft = first.body }, Cmd.none )
                 [] -> ( model, Cmd.none )
         CancelReply -> ( { model | replyTo = Nothing, replyToBlockId = "", editing = Nothing, draft = "" }, Cmd.none )
         SetCreateKind v -> ( { model | createKind = v, createTitle = "" }, Cmd.none )
@@ -242,7 +242,7 @@ publish model =
                 Nothing -> []
             block =
                 Encode.object
-                    [ ( "type", Encode.string model.blockType )
+                    [ ( "type", Encode.string "markdown" )
                     , ( "schemaVersion", Encode.int 1 )
                     , ( "payload", Encode.object [ ( "text", Encode.string (String.trim model.draft) ) ] )
                     ]
@@ -466,7 +466,27 @@ incidentHeader model incident =
             ]))
 
 
-feed model = section [ class "feed", attribute "aria-label" "Chronological feed" ] (List.map (viewPost model) model.posts ++ [ composer model ])
+feed model =
+    section [ class "feed", attribute "aria-label" "Chronological feed" ]
+        (List.map (viewPostThread model) (threadRoots model.posts) ++ [ composer model ])
+
+threadRoots posts =
+    List.filter
+        (\post -> post.replyToPostId == "" || not (List.any (\candidate -> candidate.id == post.replyToPostId) posts))
+        posts
+
+viewPostThread model post =
+    let
+        replies = List.filter (\candidate -> candidate.replyToPostId == post.id) model.posts
+    in
+    div [ class "post-thread" ]
+        [ viewPost model post
+        , if List.isEmpty replies then
+            text ""
+          else
+            div [ class "post-children" ] (List.map (viewPostThread model) replies)
+        ]
+
 viewPost model post =
     Html.article [ class (if post.replyToPostId == "" then "post" else "post post-reply") ]
         [ div [ class "post-meta" ] [ span [ class "author" ] [ text post.authorId ], span [] [ text ("revision " ++ String.fromInt post.revision) ] ]
@@ -505,7 +525,51 @@ postExcerpt post blockId =
         [] ->
             "Referenced content"
 
-viewBlock post block = div [ class ("block block-" ++ block.kind) ] [ span [ class "block-kind" ] [ text block.kind ], p [] [ text block.body ], button [ class "text-action block-reply-action", onClick (SetReply post block.id) ] [ text "Reply to block" ] ]
+viewBlock _ block =
+    div [ class ("block block-" ++ block.kind) ]
+        (blockContent block)
+
+blockContent block =
+    case block.kind of
+        "markdown" ->
+            [ div [ class "markdown-body" ] (List.map viewMarkdownChunk (markdownChunks block.body)) ]
+
+        "code" ->
+            [ pre [ class "code-block" ] [ code [] [ text block.body ] ] ]
+
+        "log" ->
+            [ pre [ class "code-block log-block" ] [ code [] [ text block.body ] ] ]
+
+        _ ->
+            [ span [ class "block-kind" ] [ text block.kind ], p [] [ text block.body ] ]
+
+viewMarkdownChunk chunk =
+    case chunk of
+        Prose body -> p [] [ text body ]
+        CodeFence language body -> pre [ class "code-block", attribute "data-language" language ] [ code [] [ text body ] ]
+
+markdownChunks body =
+    markdownLines (String.lines body) False "" [] []
+
+markdownLines remaining inCode language buffered chunks =
+    case remaining of
+        [] ->
+            appendMarkdownChunk inCode language buffered chunks |> List.reverse
+
+        line :: rest ->
+            if String.startsWith "```" line then
+                if inCode then
+                    markdownLines rest False "" [] (appendMarkdownChunk True language buffered chunks)
+                else
+                    markdownLines rest True (String.trim (String.dropLeft 3 line)) [] (appendMarkdownChunk False "" buffered chunks)
+            else
+                markdownLines rest inCode language (line :: buffered) chunks
+
+appendMarkdownChunk inCode language buffered chunks =
+    let body = buffered |> List.reverse |> String.join "\n" in
+    if String.trim body == "" then chunks
+    else if inCode then CodeFence language body :: chunks
+    else Prose body :: chunks
 
 composer model =
     div [ class "composer" ]
@@ -521,7 +585,7 @@ composer model =
                     Nothing ->
                         text ""
         , label [] [ text "Add to the channel" ], textarea [ placeholder "Share an update…", value model.draft, onInput SetDraft ] []
-        , div [ class "composer-actions" ] [ select [ value model.blockType, onChange SetBlockType, attribute "aria-label" "Block type" ] (List.map (choice model.blockType) [ "markdown", "code", "log", "table", "checklist", "fact", "decision", "action", "poll", "approval", "status" ]), button [ class "primary-action", onClick Publish, disabled (model.busy || String.trim model.draft == "") ] [ text (if model.editing == Nothing then "Post update" else "Save revision") ] ]
+        , div [ class "composer-actions" ] [ span [ class "composer-help" ] [ text "Markdown · wrap code in ``` fences" ], button [ class "primary-action", onClick Publish, disabled (model.busy || String.trim model.draft == "") ] [ text (if model.editing == Nothing then "Post update" else "Save revision") ] ]
         ]
 
 incidentState model incident =

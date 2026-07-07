@@ -53,7 +53,7 @@ test("operators record and accept a decision", async ({ page }) => {
   await expect(page.getByText("accepted", { exact: true })).toBeVisible();
 });
 
-test("post and block replies retain their target after reload", async ({ page }) => {
+test("post replies retain their target after reload", async ({ page }) => {
   const title = `Reply validation ${Date.now()}`;
   const parentText = "Primary evidence from the checkout logs.";
   const replyText = "This block confirms the same failure signature.";
@@ -65,8 +65,8 @@ test("post and block replies retain their target after reload", async ({ page })
   await page.getByRole("button", { name: "Post update" }).click();
 
   const parent = page.locator("article.post", { hasText: parentText });
-  await parent.getByRole("button", { name: "Reply to block" }).click();
-  await expect(page.getByText("Replying to block by alice")).toBeVisible();
+  await parent.getByRole("button", { name: "Reply to post" }).click();
+  await expect(page.getByText("Replying to post by alice")).toBeVisible();
   await page.getByPlaceholder("Share an update…").fill(replyText);
 
   const responsePromise = page.waitForResponse(response =>
@@ -77,15 +77,15 @@ test("post and block replies retain their target after reload", async ({ page })
   expect(response.status()).toBe(201);
   const createdReply = await response.json();
   expect(createdReply.replyToPostId).toBeTruthy();
-  expect(createdReply.replyToBlockId).toBeTruthy();
+  expect(createdReply.replyToBlockId).toBeFalsy();
 
   const reply = page.locator("article.post-reply", { hasText: replyText });
-  await expect(reply).toContainText(`Reply to block by alice: ${parentText}`);
+  await expect(reply).toContainText(`Reply to alice: ${parentText}`);
 
   await page.reload();
   await page.getByRole("button", { name: `unclassified ${title}` }).click();
   await expect(page.locator("article.post-reply", { hasText: replyText }))
-    .toContainText(`Reply to block by alice: ${parentText}`);
+    .toContainText(`Reply to alice: ${parentText}`);
 });
 
 test("the top-right identity control is explicitly development-only", async ({ page }) => {
